@@ -1,0 +1,32 @@
+name: Autonomous Development Workflow
+
+on:
+  issues:
+    types: [opened] # Issueが新しく作成されたときにトリガー
+
+jobs:
+  autonomous-fix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Install Antigravity CLI
+        run: |
+          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          echo "$HOME/.antigravity/bin" >> $GITHUB_PATH
+
+      - name: Run Antigravity Autonomous Agent
+        env:
+          ANTIGRAVITY_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 完全に自動（バックグラウンド）で動かすため --headless モードで実行します
+          agy --headless "/goal gh issue view ${{ github.event.issue.number }} の内容を分析し、コードの修正、ローカルテストの実行、そして修正用ブランチから main ブランチへのプルリクエスト作成（gh pr create）までを完了させてください。"
