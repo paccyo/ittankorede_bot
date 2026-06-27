@@ -28,5 +28,5 @@ jobs:
           ANTIGRAVITY_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 完全に自動（バックグラウンド）で動かすため --headless モードで実行します
-          agy --headless "/goal gh issue view ${{ github.event.issue.number }} の内容を分析し、コードの修正、ローカルテストの実行、そして修正用ブランチから main ブランチへのプルリクエスト作成（gh pr create）までを完了させてください。"
+          # --print と --dangerously-skip-permissions を使用して完全自動実行します
+          agy --dangerously-skip-permissions --print "/goal gh issue view ${{ github.event.issue.number }} の内容を分析し、コードの修正、ローカルテストの実行、そして修正用ブランチから main ブランチへのプルリクエスト作成（gh pr create）までを完了させてください。"
