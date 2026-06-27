@@ -1,58 +1,25 @@
-name: Autonomous Development Workflow
+name: AI Agent
 
 on:
   issues:
-    types: [opened] # 新しいIssueが作成されたときに起動
+    types:
+      - opened
 
 jobs:
-  autonomous-fix:
+  issue:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+
     steps:
-      # 1. リポジトリのコードを取得
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # 2. GitHub CLI (gh) の認証
-      - name: Set up GitHub CLI
+      - name: Show Issue
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
-      # 3. Antigravity CLI (agy) のインストール
-      - name: Install Antigravity CLI
-        run: |
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
-          echo "$HOME/.antigravity/bin" >> $GITHUB_PATH
-
-      # 4. OAuth認証ファイルの復元（安全な書き込みと複数パスへの配置）
-      - name: Restore OAuth Credentials
-        run: |
-          # 必要なディレクトリをすべて作成
-          mkdir -p $HOME/.gemini
-          mkdir -p $HOME/.antigravity
-          mkdir -p $HOME/.config/antigravity
-          
-          # 複数行のJSONフォーマットを崩さずに安全に書き込む
-          cat << 'EOF' > $HOME/.gemini/oauth_creds.json
-          ${{ secrets.AGY_AUTH_JSON }}
-          EOF
-          
-          # Linux環境でagyが参照する可能性のある場所すべてにコピーを配置
-          cp $HOME/.gemini/oauth_creds.json $HOME/.antigravity/oauth_creds.json
-          cp $HOME/.gemini/oauth_creds.json $HOME/.antigravity/credentials.json
-          cp $HOME/.gemini/oauth_creds.json $HOME/.config/antigravity/oauth_creds.json
-
-      # 5. Gitコミット用のユーザー設定
-      - name: Setup Git Identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      # 6. エージェントの実行と自律開発プロセス
-      - name: Run Antigravity Autonomous Agent
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          agy --dangerously-skip-permissions --print --print-timeout 15m "/goal gh issue view ${{ github.event.issue.number }} の要件を実装してください。作業を始める前に、必ずGitflowに沿って 'feature/issue-${{ github.event.issue.number }}-<概要>' のような命名規則で新しいブランチを作成してください。実装完了後、git commit を行い、リモートにプッシュした上で、作成した feature ブランチから main ブランチへのプルリクエスト（gh pr create --fill）を作成してください。"
+          echo "Issue Number: ${{ github.event.issue.number }}"
+          echo "Title:"
+          echo "${{ github.event.issue.title }}"
+          echo ""
+          echo "Body:"
+          echo "${{ github.event.issue.body }}"
