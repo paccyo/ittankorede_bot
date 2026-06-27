@@ -12,22 +12,14 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      issues: read
+      issues: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Antigravity CLI
-        run: |
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
-
-      - name: Check agy
-        run: |
-          agy --version
-
       - name: Create Issue File
         run: |
-          cat << EOF > ISSUE.md
+          cat << 'EOF' > ISSUE.md
           # Issue
 
           Title:
@@ -37,11 +29,8 @@ jobs:
           ${{ github.event.issue.body }}
           EOF
 
-      - name: Test AGY
-        env:
-          ANTIGRAVITY_TOKEN: ${{ secrets.ANTIGRAVITY_TOKEN }}
-        run: |
-          agy \
-            --dangerously-skip-permissions \
-            --print \
-            "こんにちは。1+1を計算してください。"
+      - name: Run Gemini CLI
+        uses: google-github-actions/run-gemini-cli@v0
+        with:
+          gemini_api_key: ${{ secrets.ANTIGRAVITY_API_KEY }}
+          prompt: "こんにちは。1+1を計算してください。"
