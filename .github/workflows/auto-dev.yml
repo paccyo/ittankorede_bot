@@ -2,36 +2,45 @@ name: Autonomous Development Workflow
 
 on:
   issues:
-    types: [opened]
+    types: [opened] # 新しいIssueが作成されたときに起動
 
 jobs:
   autonomous-fix:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. リポジトリのコードを取得
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # 2. GitHub CLI (gh) の認証
       - name: Set up GitHub CLI
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
+      # 3. Antigravity CLI (agy) のインストール
       - name: Install Antigravity CLI
         run: |
           curl -fsSL https://antigravity.google/cli/install.sh | bash
           echo "$HOME/.antigravity/bin" >> $GITHUB_PATH
 
+      # 4. OAuth認証ファイルの復元（無人サーバーでのブラウザ認証回避）
+      - name: Restore OAuth Credentials
+        run: |
+          mkdir -p $HOME/.gemini
+          echo "${{ secrets.AGY_AUTH_JSON }}" > $HOME/.gemini/oauth_creds.json
+
+      # 5. Gitコミット用のユーザー設定
       - name: Setup Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+      # 6. エージェントの実行と自律開発プロセス
       - name: Run Antigravity Autonomous Agent
         env:
-          GOOGLE_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
-          ANTIGRAVITY_TOKEN: ${{ secrets.ANTIGRAVITY_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           agy --dangerously-skip-permissions --print --print-timeout 15m "/goal gh issue view ${{ github.event.issue.number }} の要件を実装してください。作業を始める前に、必ずGitflowに沿って 'feature/issue-${{ github.event.issue.number }}-<概要>' のような命名規則で新しいブランチを作成してください。実装完了後、git commit を行い、リモートにプッシュした上で、作成した feature ブランチから main ブランチへのプルリクエスト（gh pr create --fill）を作成してください。"
