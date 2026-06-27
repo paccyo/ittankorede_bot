@@ -34,3 +34,5 @@ jobs:
         with:
           gemini_api_key: ${{ secrets.ANTIGRAVITY_API_KEY }}
           prompt: "こんにちは。1+1を計算してください。"
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: true
