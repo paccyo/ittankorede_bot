@@ -30,7 +30,8 @@ jobs:
 
       - name: Run Antigravity Autonomous Agent
         env:
-          ANTIGRAVITY_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           agy --dangerously-skip-permissions --print --print-timeout 15m "/goal gh issue view ${{ github.event.issue.number }} の要件を実装してください。作業を始める前に、必ずGitflowに沿って 'feature/issue-${{ github.event.issue.number }}-<概要>' のような命名規則で新しいブランチを作成してください。実装完了後、git commit を行い、リモートにプッシュした上で、作成した feature ブランチから main ブランチへのプルリクエスト（gh pr create --fill）を作成してください。"
