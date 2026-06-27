@@ -37,8 +37,9 @@ jobs:
           ${{ github.event.issue.body }}
           EOF
 
-
       - name: Test AGY
+        env:
+          ANTIGRAVITY_TOKEN: ${{ secrets.ANTIGRAVITY_TOKEN }}
         run: |
           agy \
             --dangerously-skip-permissions \
