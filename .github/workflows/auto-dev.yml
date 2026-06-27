@@ -26,11 +26,23 @@ jobs:
           curl -fsSL https://antigravity.google/cli/install.sh | bash
           echo "$HOME/.antigravity/bin" >> $GITHUB_PATH
 
-      # 4. OAuth認証ファイルの復元（無人サーバーでのブラウザ認証回避）
+      # 4. OAuth認証ファイルの復元（安全な書き込みと複数パスへの配置）
       - name: Restore OAuth Credentials
         run: |
+          # 必要なディレクトリをすべて作成
           mkdir -p $HOME/.gemini
-          echo "${{ secrets.AGY_AUTH_JSON }}" > $HOME/.gemini/oauth_creds.json
+          mkdir -p $HOME/.antigravity
+          mkdir -p $HOME/.config/antigravity
+          
+          # 複数行のJSONフォーマットを崩さずに安全に書き込む
+          cat << 'EOF' > $HOME/.gemini/oauth_creds.json
+          ${{ secrets.AGY_AUTH_JSON }}
+          EOF
+          
+          # Linux環境でagyが参照する可能性のある場所すべてにコピーを配置
+          cp $HOME/.gemini/oauth_creds.json $HOME/.antigravity/oauth_creds.json
+          cp $HOME/.gemini/oauth_creds.json $HOME/.antigravity/credentials.json
+          cp $HOME/.gemini/oauth_creds.json $HOME/.config/antigravity/oauth_creds.json
 
       # 5. Gitコミット用のユーザー設定
       - name: Setup Git Identity
