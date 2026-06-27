@@ -36,3 +36,18 @@ jobs:
           Body:
           ${{ github.event.issue.body }}
           EOF
+
+
+      - name: Run AGY
+        env:
+          ANTIGRAVITY_TOKEN: ${{ secrets.ANTIGRAVITY_TOKEN }}
+        run: |
+          agy \
+            --headless \
+            --approve all \
+            -p "
+            AGENTS.mdを読み、
+            ISSUE.mdの内容を解析してください。
+
+            実装方針だけを説明してください。
+            "
