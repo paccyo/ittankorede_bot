@@ -2,7 +2,7 @@ name: Autonomous Development Workflow
 
 on:
   issues:
-    types: [opened] # Issueが新しく作成されたときにトリガー
+    types: [opened]
 
 jobs:
   autonomous-fix:
@@ -23,10 +23,14 @@ jobs:
           curl -fsSL https://antigravity.google/cli/install.sh | bash
           echo "$HOME/.antigravity/bin" >> $GITHUB_PATH
 
+      - name: Setup Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Run Antigravity Autonomous Agent
         env:
           ANTIGRAVITY_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # --print と --dangerously-skip-permissions を使用して完全自動実行します
-          agy --dangerously-skip-permissions --print "/goal gh issue view ${{ github.event.issue.number }} の内容を分析し、コードの修正、ローカルテストの実行、そして修正用ブランチから main ブランチへのプルリクエスト作成（gh pr create）までを完了させてください。"
+          agy --dangerously-skip-permissions --print --print-timeout 15m "/goal gh issue view ${{ github.event.issue.number }} の要件を実装してください。作業を始める前に、必ずGitflowに沿って 'feature/issue-${{ github.event.issue.number }}-<概要>' のような命名規則で新しいブランチを作成してください。実装完了後、git commit を行い、リモートにプッシュした上で、作成した feature ブランチから main ブランチへのプルリクエスト（gh pr create --fill）を作成してください。"
