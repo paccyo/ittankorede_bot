@@ -17,17 +17,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Save Issue
+      - name: Install Antigravity CLI
+        run: |
+          curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+      - name: Check agy
+        run: |
+          agy --version
+
+      - name: Create Issue File
         run: |
           cat << EOF > ISSUE.md
-          # Issue #${{ github.event.issue.number }}
+          # Issue
 
-          ## Title
+          Title:
           ${{ github.event.issue.title }}
 
-          ## Body
+          Body:
           ${{ github.event.issue.body }}
           EOF
-
-      - name: Show Issue File
-        run: cat ISSUE.md
