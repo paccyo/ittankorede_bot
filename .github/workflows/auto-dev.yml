@@ -15,11 +15,19 @@ jobs:
       issues: read
 
     steps:
-      - name: Show Issue
+      - uses: actions/checkout@v4
+
+      - name: Save Issue
         run: |
-          echo "Issue Number: ${{ github.event.issue.number }}"
-          echo "Title:"
-          echo "${{ github.event.issue.title }}"
-          echo ""
-          echo "Body:"
-          echo "${{ github.event.issue.body }}"
+          cat << EOF > ISSUE.md
+          # Issue #${{ github.event.issue.number }}
+
+          ## Title
+          ${{ github.event.issue.title }}
+
+          ## Body
+          ${{ github.event.issue.body }}
+          EOF
+
+      - name: Show Issue File
+        run: cat ISSUE.md
