@@ -32,6 +32,7 @@ jobs:
 
       - name: Generate patch with Codex
         env:
+          CI: true
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           BRANCH="codex/issue-${{ github.event.issue.number }}"
