@@ -1,9 +1,20 @@
 実装しました。
 
 変更内容:
-- [README.md](/home/runner/work/ittankorede_bot/ittankorede_bot/README.md:3) に `hello world` を追加
-- [tests/test_readme.py](/home/runner/work/ittankorede_bot/ittankorede_bot/tests/test_readme.py:1) を追加し、README に `hello world` 行が含まれることを検証
-- `unittest discover` 用に [tests/__init__.py](/home/runner/work/ittankorede_bot/ittankorede_bot/tests/__init__.py:1) を追加
+- [package.json](/home/runner/work/ittankorede_bot/ittankorede_bot/package.json:1) に CDK/Jest/TypeScript/tweetnacl 依存と scripts を追加
+- [bin/app.ts](/home/runner/work/ittankorede_bot/ittankorede_bot/bin/app.ts:1) と [lib/discord-bot-stack.ts](/home/runner/work/ittankorede_bot/ittankorede_bot/lib/discord-bot-stack.ts:1) に CDK 構成を追加
+  - Node.js 20.x の `NodejsFunction`
+  - `src/bot.ts` / `handler`
+  - API Gateway REST API `POST /interactions`
+  - Lambda proxy integration
+  - `PUBLIC_KEY` 環境変数
+- [src/bot.ts](/home/runner/work/ittankorede_bot/ittankorede_bot/src/bot.ts:1) に Discord 署名検証と Ping 応答を実装
+- [test/bot.test.ts](/home/runner/work/ittankorede_bot/ittankorede_bot/test/bot.test.ts:1) に Jest 単体テストを追加
+- [.gitignore](/home/runner/work/ittankorede_bot/ittankorede_bot/.gitignore:17) で CDK 用 `lib/**/*.ts` を追跡できるよう調整
 
 確認:
-- `python -m unittest discover` 実行済み、1 件成功しています。
+- `python -m unittest discover`: 成功
+- `npm install --fetch-timeout=10000 --fetch-retries=0`: 失敗。`registry.npmjs.org` の DNS 解決が `EAI_AGAIN`
+- 依存未取得のため `npm test` は `jest: not found`、`npm run synth` は `cdk: not found`、`npm run build` は `@types/*` 不足で失敗
+
+ネットワーク復旧後は `npm install` の後に `npm test` と `npm run synth` を実行すれば検証できます。
