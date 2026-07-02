@@ -1,16 +1,21 @@
 name: Codex Issue Auto-Implement
+
 on:
   issues:
     types: [labeled]
+  issue_comment:
+    types: [created]
 
 jobs:
   implement:
-    if: github.event.label.name == 'codex'
+    if: github.event_name == 'issues' && github.event.label.name == 'codex'
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
       pull-requests: write
       issues: write
+
     steps:
       - uses: actions/checkout@v5
 
@@ -18,28 +23,220 @@ jobs:
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt: |
-            次のIssueの内容を実装してください:
-
-            タイトル: ${{ github.event.issue.title }}
-            本文: ${{ github.event.issue.body }}
-
-            実装後にテストも追加してください。
-            既存のコードスタイル・命名規則に従うこと。
           sandbox: workspace-write
           output-file: implementation-output.md
+          prompt: |
+            次のIssueを実装してください。
+
+            ## タイトル
+            ${{ github.event.issue.title }}
+
+            ## 本文
+            ${{ github.event.issue.body }}
+
+            要件:
+            - Issueを満たす実装を行うこと
+            - 必要に応じて既存コードを修正すること
+            - テストを追加・更新すること
+            - 既存のコードスタイル・命名規則に従うこと
+
+            作業完了後、implementation-output.md に以下をMarkdownで出力してください。
+
+            # 実装概要
+            # 主な変更点
+            # 変更ファイル
+            # テスト
+            # レビュー時に確認してほしい点
+
+      - name: Read Codex Summary
+        id: summary
+        run: |
+          {
+            echo "body<<EOF"
+            cat implementation-output.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          branch: codex/issue-${{ github.event.issue.number }}
           commit-message: "feat: ${{ github.event.issue.title }}"
           title: "[Auto] ${{ github.event.issue.title }}"
+          labels: codex-generated
           body: |
-            このPRはCodex GitHub Actionによって自動生成されました。
+            ## 🤖 Codexによる自動実装
 
-            対象Issue: #${{ github.event.issue.number }}
+            Issue #${{ github.event.issue.number }} を実装しました。
+
+            ---
+
+            ${{ steps.summary.outputs.body }}
+
+            ---
+
+            ## Codexへの追加指示
+
+            ```text
+            @codex fix
+            ○○を修正してください。
+            ```
+
+            ```text
+            @codex explain
+            このPRの変更内容と設計意図を説明してください。
+            ```
 
             **必ず人間がレビューしてからマージしてください。**
-          branch: "codex/issue-${{ github.event.issue.number }}"
-          labels: "codex-generated"
+
+  codex-command:
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '@codex ') &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Parse Codex Command
+        id: command
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          COMMAND=$(echo "$BODY" | head -n 1 | sed -E 's/^@codex[[:space:]]+([a-zA-Z0-9_-]+).*/\1/')
+
+          echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
+
+          if [ "$COMMAND" != "fix" ] && [ "$COMMAND" != "explain" ]; then
+            echo "Unsupported command: $COMMAND"
+            exit 1
+          fi
+
+      - name: Get PR Information
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=$(gh pr view ${{ github.event.issue.number }} --json headRefName,baseRefName)
+          echo "branch=$(echo "$PR" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+          echo "base=$(echo "$PR" | jq -r '.baseRefName')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Prepare PR Diff
+        run: |
+          git fetch origin ${{ steps.pr.outputs.base }}
+          git diff origin/${{ steps.pr.outputs.base }}...HEAD > pr-diff.patch
+
+      - name: Run Codex Fix
+        if: steps.command.outputs.command == 'fix'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: workspace-write
+          output-file: codex-output.md
+          prompt: |
+            このPull Requestへのレビューコメントを反映してください。
+
+            ## PR番号
+            #${{ github.event.issue.number }}
+
+            ## レビューコメント
+            ${{ github.event.comment.body }}
+
+            ## PR差分
+            pr-diff.patch に現在のPR差分があります。
+
+            要件:
+            - レビューコメントの内容を反映すること
+            - 不要な変更はしないこと
+            - 既存のコードスタイル・命名規則に従うこと
+            - 必要に応じてテストを追加・修正すること
+            - 実行可能なテストがあれば実行すること
+
+            作業後、codex-output.md に以下をMarkdownで出力してください。
+
+            # 修正概要
+            # 変更ファイル
+            # テスト
+            # レビュー時に確認してほしい点
+
+      - name: Run Codex Explain
+        if: steps.command.outputs.command == 'explain'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          output-file: codex-output.md
+          prompt: |
+            このPull Requestの変更内容をレビュー者向けに説明してください。
+
+            ## PR番号
+            #${{ github.event.issue.number }}
+
+            ## ユーザーコメント
+            ${{ github.event.comment.body }}
+
+            ## PR差分
+            pr-diff.patch にPRの差分があります。
+
+            以下をMarkdownで簡潔にまとめてください。
+
+            # 変更概要
+            # 設計意図
+            # 主な変更ファイル
+            # テスト観点
+            # レビュー時に確認してほしい点
+
+      - name: Commit Fix
+        if: steps.command.outputs.command == 'fix'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: ${{ steps.pr.outputs.branch }}
+          commit_message: "fix: address review comments"
+          file_pattern: .
+
+      - name: Read Codex Output
+        id: output
+        run: |
+          {
+            echo "body<<EOF"
+            cat codex-output.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment Codex Result
+        uses: actions/github-script@v7
+        env:
+          BODY: ${{ steps.output.outputs.body }}
+          COMMAND: ${{ steps.command.outputs.command }}
+        with:
+          script: |
+            const title = process.env.COMMAND === 'fix'
+              ? '## 🤖 Codexが修正を反映しました'
+              : '## 🤖 Codexによる変更説明';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `${title}
+
+            ${process.env.BODY}
+
+            ${process.env.COMMAND === 'fix' ? 'レビューをお願いします。' : ''}`
+            })
