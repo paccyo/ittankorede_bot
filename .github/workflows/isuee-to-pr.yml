@@ -52,9 +52,9 @@ jobs:
         id: summary
         run: |
           {
-            echo "body<<EOF"
+            echo 'body<<__CODEX__'
             cat implementation-output.md
-            echo "EOF"
+            echo '__CODEX__'
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Pull Request
@@ -216,9 +216,9 @@ jobs:
         id: output
         run: |
           {
-            echo "body<<EOF"
+            echo 'body<<__CODEX__'
             cat codex-output.md
-            echo "EOF"
+            echo '__CODEX__'
           } >> "$GITHUB_OUTPUT"
 
       - name: Comment Codex Result
