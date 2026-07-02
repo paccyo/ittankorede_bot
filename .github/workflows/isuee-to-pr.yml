@@ -90,6 +90,7 @@ jobs:
 
             **必ず人間がレビューしてからマージしてください。**
 
+
   codex-command:
     if: >
       github.event_name == 'issue_comment' &&
@@ -109,6 +110,8 @@ jobs:
       issues: write
 
     steps:
+      - uses: actions/checkout@v5
+
       - name: Parse Codex Command
         id: command
         run: |
@@ -136,7 +139,6 @@ jobs:
           ref: ${{ steps.pr.outputs.branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-
       - name: Prepare PR Diff
         run: |
           git fetch origin ${{ steps.pr.outputs.base }}
