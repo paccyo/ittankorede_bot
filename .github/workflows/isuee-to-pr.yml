@@ -39,6 +39,7 @@ jobs:
             - 必要に応じて既存コードを修正すること
             - テストを追加・更新すること
             - 既存のコードスタイル・命名規則に従うこと
+            - 実行可能なテストがあれば実行すること
 
             作業完了後、implementation-output.md に以下をMarkdownで出力してください。
 
@@ -46,15 +47,28 @@ jobs:
             # 主な変更点
             # 変更ファイル
             # テスト
+            - 追加・変更したテスト
+            - テスト実行方法
+            - 実行結果
             # レビュー時に確認してほしい点
 
       - name: Read Codex Summary
         id: summary
+        shell: bash
         run: |
+          DELIMITER="CODEX_SUMMARY_$(date +%s)_$RANDOM"
+
           {
-            echo 'body<<__CODEX__'
-            cat implementation-output.md
-            echo '__CODEX__'
+            echo "body<<$DELIMITER"
+
+            if [ -f implementation-output.md ]; then
+              cat implementation-output.md
+            else
+              echo "Codex did not generate implementation-output.md."
+            fi
+
+            printf '\n'
+            echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Pull Request
@@ -76,12 +90,29 @@ jobs:
 
             ---
 
+            ## レビュー依頼
+
+            以下を中心にレビューをお願いします。
+
+            - Issueの要件を満たしているか
+            - 実装方針に問題がないか
+            - テスト内容は十分か
+            - 命名・可読性
+            - パフォーマンス
+            - セキュリティ
+
+            ---
+
             ## Codexへの追加指示
+
+            修正したい場合:
 
             ```text
             @codex fix
             ○○を修正してください。
             ```
+
+            変更内容を説明してほしい場合:
 
             ```text
             @codex explain
@@ -89,7 +120,6 @@ jobs:
             ```
 
             **必ず人間がレビューしてからマージしてください。**
-
 
   codex-command:
     if: >
@@ -110,36 +140,70 @@ jobs:
       issues: write
 
     steps:
-      - uses: actions/checkout@v5
-
       - name: Parse Codex Command
         id: command
+        shell: bash
         run: |
-          BODY="${{ github.event.comment.body }}"
-          COMMAND=$(echo "$BODY" | head -n 1 | sed -E 's/^@codex[[:space:]]+([a-zA-Z0-9_-]+).*/\1/')
+          BODY=$(cat <<'COMMENT_BODY'
+          ${{ github.event.comment.body }}
+          COMMENT_BODY
+          )
+
+          COMMAND=$(printf '%s\n' "$BODY" | head -n 1 | sed -E 's/^@codex[[:space:]]+([a-zA-Z0-9_-]+).*/\1/')
 
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
 
-          if [ "$COMMAND" != "fix" ] && [ "$COMMAND" != "explain" ]; then
-            echo "Unsupported command: $COMMAND"
-            exit 1
+          if [ "$COMMAND" = "fix" ] || [ "$COMMAND" = "explain" ]; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Comment Unsupported Command
+        if: steps.command.outputs.supported == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `対応していないCodexコマンドです。
+
+            利用可能なコマンド:
+
+            \`\`\`text
+            @codex fix
+            @codex explain
+            \`\`\``
+            })
+
+      - name: Stop Unsupported Command
+        if: steps.command.outputs.supported == 'false'
+        shell: bash
+        run: exit 0
+
       - name: Get PR Information
+        if: steps.command.outputs.supported == 'true'
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           PR=$(gh pr view ${{ github.event.issue.number }} --json headRefName,baseRefName)
           echo "branch=$(echo "$PR" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
           echo "base=$(echo "$PR" | jq -r '.baseRefName')" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v5
+        if: steps.command.outputs.supported == 'true'
         with:
           ref: ${{ steps.pr.outputs.branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
       - name: Prepare PR Diff
+        if: steps.command.outputs.supported == 'true'
+        shell: bash
         run: |
           git fetch origin ${{ steps.pr.outputs.base }}
           git diff origin/${{ steps.pr.outputs.base }}...HEAD > pr-diff.patch
@@ -175,6 +239,9 @@ jobs:
             # 修正概要
             # 変更ファイル
             # テスト
+            - 追加・変更したテスト
+            - テスト実行方法
+            - 実行結果
             # レビュー時に確認してほしい点
 
       - name: Run Codex Explain
@@ -213,15 +280,27 @@ jobs:
           file_pattern: .
 
       - name: Read Codex Output
+        if: steps.command.outputs.supported == 'true'
         id: output
+        shell: bash
         run: |
+          DELIMITER="CODEX_OUTPUT_$(date +%s)_$RANDOM"
+
           {
-            echo 'body<<__CODEX__'
-            cat codex-output.md
-            echo '__CODEX__'
+            echo "body<<$DELIMITER"
+
+            if [ -f codex-output.md ]; then
+              cat codex-output.md
+            else
+              echo "Codex did not generate codex-output.md."
+            fi
+
+            printf '\n'
+            echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
 
       - name: Comment Codex Result
+        if: steps.command.outputs.supported == 'true'
         uses: actions/github-script@v7
         env:
           BODY: ${{ steps.output.outputs.body }}
@@ -232,13 +311,13 @@ jobs:
               ? '## 🤖 Codexが修正を反映しました'
               : '## 🤖 Codexによる変更説明';
 
+            const footer = process.env.COMMAND === 'fix'
+              ? '\n\nレビューをお願いします。'
+              : '';
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `${title}
-
-            ${process.env.BODY}
-
-            ${process.env.COMMAND === 'fix' ? 'レビューをお願いします。' : ''}`
+              body: `${title}\n\n${process.env.BODY}${footer}`
             })
