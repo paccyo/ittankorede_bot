@@ -8,3 +8,5 @@ labels: enhancement
 ## AC
 
 ## サブタスク
+
+## 備考欄
