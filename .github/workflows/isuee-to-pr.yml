@@ -59,7 +59,7 @@ jobs:
           DELIMITER="CODEX_SUMMARY_$(date +%s)_$RANDOM"
 
           {
-            echo "body<<$DELIMITER"
+            echo "body<<__CODEX__"
 
             if [ -f implementation-output.md ]; then
               cat implementation-output.md
@@ -68,7 +68,7 @@ jobs:
             fi
 
             printf '\n'
-            echo "$DELIMITER"
+            echo '__CODEX__'
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Pull Request
@@ -287,7 +287,7 @@ jobs:
           DELIMITER="CODEX_OUTPUT_$(date +%s)_$RANDOM"
 
           {
-            echo "body<<$DELIMITER"
+            echo "body<<__CODEX__"
 
             if [ -f codex-output.md ]; then
               cat codex-output.md
@@ -296,7 +296,7 @@ jobs:
             fi
 
             printf '\n'
-            echo "$DELIMITER"
+            echo '__CODEX__'
           } >> "$GITHUB_OUTPUT"
 
       - name: Comment Codex Result
