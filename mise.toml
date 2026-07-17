@@ -24,10 +24,4 @@ run = "npm run build"
 
 [tasks.aws-login]
 description = "Log in to AWS IAM Identity Center (set AWS_PROFILE when needed)"
-run = '''
-if [ -n "${AWS_PROFILE:-}" ]; then
-  aws sso login --profile "$AWS_PROFILE"
-else
-  aws sso login
-fi
-'''
+run = "aws sts get-caller-identity --profile discord-bot-dev"
