@@ -1,0 +1,33 @@
+[tools]
+node = "24.10.0"
+aws-cli = "2.27.49"
+
+[tasks.setup]
+description = "Install the project dependencies"
+dir = "{{config_root}}/discord-bot-cdk"
+run = "npm ci"
+
+[tasks.bot]
+description = "Start the Discord bot locally"
+dir = "{{config_root}}/discord-bot-cdk"
+run = "npm run bot"
+
+[tasks.test]
+description = "Run all tests"
+dir = "{{config_root}}/discord-bot-cdk"
+run = "npm test -- --runInBand"
+
+[tasks.build]
+description = "Compile the TypeScript sources"
+dir = "{{config_root}}/discord-bot-cdk"
+run = "npm run build"
+
+[tasks.aws-login]
+description = "Log in to AWS IAM Identity Center (set AWS_PROFILE when needed)"
+run = '''
+if [ -n "${AWS_PROFILE:-}" ]; then
+  aws sso login --profile "$AWS_PROFILE"
+else
+  aws sso login
+fi
+'''

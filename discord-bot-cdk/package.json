@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "scripts": {
     "build": "tsc",
+    "bot": "node --require ts-node/register bot/index.ts",
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk"
