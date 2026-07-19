@@ -1,9 +1,12 @@
-実装しました。
+実装完了しました。
 
-変更内容:
-- [README.md](/home/runner/work/ittankorede_bot/ittankorede_bot/README.md:3) に `hello world` を追加
-- [tests/test_readme.py](/home/runner/work/ittankorede_bot/ittankorede_bot/tests/test_readme.py:1) を追加し、README に `hello world` 行が含まれることを検証
-- `unittest discover` 用に [tests/__init__.py](/home/runner/work/ittankorede_bot/ittankorede_bot/tests/__init__.py:1) を追加
+主な内容:
 
-確認:
-- `python -m unittest discover` 実行済み、1 件成功しています。
+- miseでNode.js / AWS CLIを固定
+- Discord Botのローカル起動機能を追加
+- Discord/AWS SSOのセットアップ手順を整備
+- トークン検証・CDKテストを追加
+- `.env` の秘密情報をGit管理対象外に設定
+- [implementation-output.md](/home/runner/work/ittankorede_bot/ittankorede_bot/implementation-output.md) を更新
+
+スモークテストと差分検査は成功しました。Jest/ビルドは、環境のネットワーク制限によりnpm依存関係を取得できず未実行です。
