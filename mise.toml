@@ -23,5 +23,5 @@ dir = "{{config_root}}/discord-bot-cdk"
 run = "npm run build"
 
 [tasks.aws-login]
-description = "Log in to AWS IAM Identity Center (set AWS_PROFILE when needed)"
-run = "aws sts get-caller-identity --profile discord-bot-dev"
+description = "Log in to AWS IAM Identity Center (SSO) and verify caller identity (set AWS_PROFILE when needed)"
+run = "aws sso login && aws sts get-caller-identity"
