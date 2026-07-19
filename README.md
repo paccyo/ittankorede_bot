@@ -20,12 +20,14 @@ mise run setup
 
 1. [Discord Developer Portal](https://discord.com/developers/applications) で Application を作成する
 2. `Bot` → `Add Bot` を選び、`Reset Token` からトークンを取得する
-3. `OAuth2` → `URL Generator` で `bot` scope を選び、生成したURLから確認用サーバーへ招待する
+3. `OAuth2` → `URL Generator` で `bot` scope を選び、`Manage Channels`、`View Channels`、`Send Messages`、`Read Message History` 権限を付けて確認用サーバーへ招待する
 4. `.env.example` を `.env` にコピーし、取得した値を設定する
 
 ```sh
 cp .env.example .env
 ```
+
+`.env` の `DISCORD_GUILD_ID` には操作対象サーバーのID、`DISCORD_SETUP_CHANNEL_ID` には常設ボタンを投稿する専用チャンネルのIDを設定します。サーバーには「ゲーム」と「アーカイブ」というカテゴリをあらかじめ作成してください。Bot起動時に常設ボタンと、送信不可に設定されたアーカイブ用モックチャンネル5件が不足分だけ作成されます。
 
 トークンはパスワードと同じ機密情報です。`.env` はGit管理対象外です。漏えいした場合はDeveloper Portalですぐに再発行してください。
 
@@ -35,7 +37,7 @@ cp .env.example .env
 mise run bot
 ```
 
-`Discord bot is online as ...` と表示され、Discord上のBotがオンラインになれば動作確認完了です。終了は `Ctrl+C` です。現在のBotはオンライン確認のみを目的としており、特権Intentは使用しません。
+`Discord bot is online as ...` と表示され、Discord上のBotがオンラインになれば動作確認完了です。終了は `Ctrl+C` です。特権Intentは使用しません。
 
 ## AWS CLI ログイン
 

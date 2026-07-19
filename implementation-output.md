@@ -1,12 +1,14 @@
 実装完了しました。
 
-主な内容:
+主な対応:
 
-- miseでNode.js / AWS CLIを固定
-- Discord Botのローカル起動機能を追加
-- Discord/AWS SSOのセットアップ手順を整備
-- トークン検証・CDKテストを追加
-- `.env` の秘密情報をGit管理対象外に設定
-- [implementation-output.md](/home/runner/work/ittankorede_bot/ittankorede_bot/implementation-output.md) を更新
+- 常設ボタン・チャンネル名入力モーダル
+- ゲーム／アーカイブカテゴリの重複検索
+- 新規チャンネル作成
+- アーカイブ復元確認とカテゴリ移動
+- エフェメラル返信
+- 読み取り専用モックチャンネル5件
+- 単体テスト追加
+- [implementation-output.md](/home/runner/work/ittankorede_bot/ittankorede_bot/implementation-output.md) 更新
 
-スモークテストと差分検査は成功しました。Jest/ビルドは、環境のネットワーク制限によりnpm依存関係を取得できず未実行です。
+追加実装の型チェックと差分検査は成功しました。全Jestテストは、ネットワーク制限により依存パッケージを導入できず未実行です。
