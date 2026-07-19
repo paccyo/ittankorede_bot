@@ -1,5 +1,6 @@
 const API_BASE_URL = 'https://discord.com/api/v10';
 
+export const SETUP_COMMAND_NAME = 'setup';
 export const OPEN_CHANNEL_MODAL_ID = 'open-channel-modal';
 export const CHANNEL_MODAL_ID = 'channel-modal';
 export const CHANNEL_NAME_INPUT_ID = 'channel-name';
@@ -42,8 +43,11 @@ export interface DiscordInteraction {
   token: string;
   type: number;
   guild_id?: string;
+  channel_id?: string;
+  application_id?: string;
   data?: {
     custom_id?: string;
+    name?: string;
     components?: InteractionOption[];
   };
 }
@@ -169,7 +173,25 @@ export class ChannelManager {
     }
   }
 
+  /** /setup スラッシュコマンドをギルドに登録する */
+  public async registerSetupCommand(applicationId: string, guildId: string): Promise<void> {
+    await this.request(`/applications/${applicationId}/guilds/${guildId}/commands`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: SETUP_COMMAND_NAME,
+        description: '常設ボタンをこのチャンネルに送信します',
+        type: 1,
+      }),
+    });
+  }
+
   public async handleInteraction(interaction: DiscordInteraction): Promise<boolean> {
+    // スラッシュコマンド (type 2: APPLICATION_COMMAND)
+    if (interaction.type === 2 && interaction.data?.name === SETUP_COMMAND_NAME) {
+      await this.handleSetupCommand(interaction);
+      return true;
+    }
+
     const customId = interaction.data?.custom_id;
     if (interaction.type === 3 && customId === OPEN_CHANNEL_MODAL_ID) {
       await this.respond(interaction, 9, {
@@ -202,6 +224,24 @@ export class ChannelManager {
       return true;
     }
     return false;
+  }
+
+  /** /setup コマンドのハンドラ */
+  private async handleSetupCommand(interaction: DiscordInteraction): Promise<void> {
+    const guildId = interaction.guild_id;
+    const channelId = interaction.channel_id;
+    if (!guildId || !channelId) {
+      await this.ephemeral(interaction, 'サーバー内で実行してください。');
+      return;
+    }
+
+    // 3秒のタイムアウトを避けるため、先に即時応答を返す
+    await this.ephemeral(interaction, '常設ボタンの送信と初期セットアップを開始します...');
+
+    // バックグラウンドで時間のかかるセットアップ処理を実行
+    this.setupGuild(guildId, channelId).catch((error: unknown) => {
+      console.error('セットアップ中にエラーが発生しました:', error instanceof Error ? error.message : error);
+    });
   }
 
   private async handleModal(interaction: DiscordInteraction): Promise<void> {

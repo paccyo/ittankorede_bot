@@ -25,3 +25,8 @@ run = "npm run build"
 [tasks.aws-login]
 description = "Log in to AWS IAM Identity Center (SSO) and verify caller identity (set AWS_PROFILE when needed)"
 run = "aws sso login && aws sts get-caller-identity"
+
+[tasks.deploy-commands]
+description = "スラッシュコマンドを Discord に登録する"
+dir = "{{config_root}}/discord-bot-cdk"
+run = "node --require ts-node/register bot/deploy-commands.ts"

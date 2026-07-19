@@ -160,4 +160,47 @@ describe('ChannelManager', () => {
     expect(calls.find((call) => call.path === '/channels/existing-archive')).toBeDefined();
     expect(calls.filter((call) => call.path === '/channels/setup/messages' && call.init)).toHaveLength(1);
   });
+  test('registers the /setup slash command', async () => {
+    const { request, calls } = createRequest([]);
+    await new ChannelManager(request).registerSetupCommand('app-id', 'guild');
+
+    expect(calls[0].path).toBe('/applications/app-id/guilds/guild/commands');
+    expect(bodyOf(calls[0])).toMatchObject({ name: 'setup', type: 1 });
+  });
+
+  test('/setup command posts the permanent button to the invoked channel', async () => {
+    const channels: DiscordChannel[] = [...categories];
+    const calls: Array<{ path: string; init?: RequestInit }> = [];
+    const request: DiscordRequest = async (path, init) => {
+      calls.push({ path, init });
+      if (path === '/guilds/guild/channels' && !init) return channels;
+      if (path === '/guilds/guild/channels') {
+        const body = bodyOf({ init }) as unknown as DiscordChannel;
+        return { ...body, id: `created-${body.name}` };
+      }
+      if (path.includes('/messages?')) return [];
+      return {};
+    };
+
+    const handled = await new ChannelManager(request).handleInteraction({
+      id: 'interaction',
+      token: 'token',
+      type: 2,
+      guild_id: 'guild',
+      channel_id: 'target-channel',
+      data: { name: 'setup' },
+    });
+
+    expect(handled).toBe(true);
+    
+    // バックグラウンド処理(setupGuild)の完了を待つ
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // setupGuild がボタンメッセージを送信
+    expect(calls.some((c) => c.path === '/channels/target-channel/messages' && c.init?.method === 'POST')).toBe(true);
+    // エフェメラル応答
+    const callback = calls.find((c) => c.path.includes('/callback'));
+    expect(callback).toBeDefined();
+    expect(bodyOf(callback!)).toMatchObject({ type: 4, data: { flags: 64 } });
+  });
 });
