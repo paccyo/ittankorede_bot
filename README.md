@@ -49,7 +49,7 @@ mise exec -- aws configure sso
 
 ```sh
 AWS_PROFILE=your-profile mise run aws-login
-AWS_PROFILE=your-profile mise exec -- aws sts get-caller-identity
+# aws-login already runs: aws sts get-caller-identity
 ```
 
 `AWS_PROFILE` を省略した場合はdefault profileを利用します。アクセスキーやSSOキャッシュなどの認証情報はコミットしないでください。
