@@ -12,3 +12,9 @@ The `cdk.json` file tells the CDK Toolkit how to execute your app.
 * `npx cdk deploy`  deploy this stack to your default AWS account/region
 * `npx cdk diff`    compare deployed stack with current state
 * `npx cdk synth`   emits the synthesized CloudFormation template
+
+## Bot configuration
+
+Copy the repository's `.env.example` to `.env`. Set `GEMINI_API_KEY` to enable
+game-name alias matching against archived channels. `GEMINI_MODEL` is optional
+and defaults to `gemini-2.5-flash`.
