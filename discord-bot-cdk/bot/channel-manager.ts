@@ -1,3 +1,5 @@
+import type { ChannelNameMatcher } from './channel-name-matcher';
+
 const API_BASE_URL = 'https://discord.com/api/v10';
 
 export const SETUP_COMMAND_NAME = 'setup';
@@ -5,6 +7,9 @@ export const OPEN_CHANNEL_MODAL_ID = 'open-channel-modal';
 export const CHANNEL_MODAL_ID = 'channel-modal';
 export const CHANNEL_NAME_INPUT_ID = 'channel-name';
 export const ACTIVATE_CHANNEL_PREFIX = 'activate-channel:';
+export const CREATE_CHANNEL_PREFIX = 'create-channel:';
+export const USE_CHANNEL_PREFIX = 'use-channel:';
+export const CANCEL_CHANNEL_PREFIX = 'cancel-channel:';
 export const ARCHIVE_MOCK_CHANNEL_NAMES = [
   'archive-sample-01',
   'archive-sample-02',
@@ -50,6 +55,12 @@ export interface DiscordInteraction {
     name?: string;
     components?: InteractionOption[];
   };
+}
+
+interface PendingChannelChoice {
+  guildId: string;
+  requestedName: string;
+  archivedChannelId: string;
 }
 
 export type DiscordRequest = (
@@ -124,7 +135,12 @@ function denySending(overwrites: PermissionOverwrite[] = [], guildId: string): P
 }
 
 export class ChannelManager {
-  public constructor(private readonly request: DiscordRequest) {}
+  private readonly pendingChoices = new Map<string, PendingChannelChoice>();
+
+  public constructor(
+    private readonly request: DiscordRequest,
+    private readonly nameMatcher?: ChannelNameMatcher,
+  ) {}
 
   public async setupGuild(guildId: string, setupChannelId: string): Promise<void> {
     const channels = (await this.request(`/guilds/${guildId}/channels`)) as DiscordChannel[];
@@ -223,6 +239,13 @@ export class ChannelManager {
       await this.activateArchivedChannel(interaction, customId.slice(ACTIVATE_CHANNEL_PREFIX.length));
       return true;
     }
+    if (interaction.type === 3 && customId) {
+      const choice = this.parseChoice(customId);
+      if (choice) {
+        await this.handleChannelChoice(interaction, choice.action, choice.choiceId);
+        return true;
+      }
+    }
     return false;
   }
 
@@ -267,16 +290,32 @@ export class ChannelManager {
       return;
     }
 
-    const archivedChannel = findChannelByName(channels, archive.id, name);
+    const archivedChannels = channels.filter(
+      (channel) => channel.type === 0 && channel.parent_id === archive.id,
+    );
+    let archivedChannel = findChannelByName(channels, archive.id, name);
+    if (!archivedChannel && this.nameMatcher) {
+      try {
+        const match = await this.nameMatcher.findSimilarChannel(input!, archivedChannels);
+        archivedChannel = archivedChannels.find((channel) => channel.id === match?.id);
+      } catch (error) {
+        console.error('チャンネル名の表記揺れ判定に失敗しました:', error instanceof Error ? error.message : error);
+      }
+    }
     if (archivedChannel) {
-      await this.ephemeral(interaction, `アーカイブに同名のチャンネルがあります: <#${archivedChannel.id}>\nゲームカテゴリへ移動しますか？`, [{
+      const choiceId = interaction.id;
+      this.pendingChoices.set(choiceId, {
+        guildId,
+        requestedName: name,
+        archivedChannelId: archivedChannel.id,
+      });
+      await this.ephemeral(interaction, `アーカイブにチャンネルが存在します: <#${archivedChannel.id}>\n新規作成するか、既存チャンネルを使用するか選択してください。`, [{
         type: 1,
-        components: [{
-          type: 2,
-          style: 3,
-          label: 'アクティブに戻す',
-          custom_id: `${ACTIVATE_CHANNEL_PREFIX}${archivedChannel.id}`,
-        }],
+        components: [
+          { type: 2, style: 1, label: '新規作成', custom_id: `${CREATE_CHANNEL_PREFIX}${choiceId}` },
+          { type: 2, style: 3, label: '既存チャンネルを使用', custom_id: `${USE_CHANNEL_PREFIX}${choiceId}` },
+          { type: 2, style: 2, label: 'キャンセル', custom_id: `${CANCEL_CHANNEL_PREFIX}${choiceId}` },
+        ],
       }]);
       return;
     }
@@ -284,6 +323,49 @@ export class ChannelManager {
     const created = (await this.request(`/guilds/${guildId}/channels`, {
       method: 'POST',
       body: JSON.stringify({ name, type: 0, parent_id: game.id }),
+    })) as DiscordChannel;
+    await this.ephemeral(interaction, `チャンネルを作成しました: <#${created.id}>`);
+  }
+
+  private parseChoice(customId: string): { action: 'create' | 'use' | 'cancel'; choiceId: string } | undefined {
+    const prefixes = [
+      [CREATE_CHANNEL_PREFIX, 'create'],
+      [USE_CHANNEL_PREFIX, 'use'],
+      [CANCEL_CHANNEL_PREFIX, 'cancel'],
+    ] as const;
+    const match = prefixes.find(([prefix]) => customId.startsWith(prefix));
+    return match ? { action: match[1], choiceId: customId.slice(match[0].length) } : undefined;
+  }
+
+  private async handleChannelChoice(
+    interaction: DiscordInteraction,
+    action: 'create' | 'use' | 'cancel',
+    choiceId: string,
+  ): Promise<void> {
+    const choice = this.pendingChoices.get(choiceId);
+    this.pendingChoices.delete(choiceId);
+    if (!choice || interaction.guild_id !== choice.guildId) {
+      await this.ephemeral(interaction, 'この選択は期限切れです。もう一度チャンネル名を入力してください。');
+      return;
+    }
+    if (action === 'cancel') {
+      await this.ephemeral(interaction, 'キャンセルしました。');
+      return;
+    }
+    if (action === 'use') {
+      await this.activateArchivedChannel(interaction, choice.archivedChannelId);
+      return;
+    }
+
+    const channels = (await this.request(`/guilds/${choice.guildId}/channels`)) as DiscordChannel[];
+    const game = channels.find((channel) => channel.type === 4 && channel.name === 'ゲーム');
+    if (!game) {
+      await this.ephemeral(interaction, '「ゲーム」カテゴリが見つかりません。');
+      return;
+    }
+    const created = (await this.request(`/guilds/${choice.guildId}/channels`, {
+      method: 'POST',
+      body: JSON.stringify({ name: choice.requestedName, type: 0, parent_id: game.id }),
     })) as DiscordChannel;
     await this.ephemeral(interaction, `チャンネルを作成しました: <#${created.id}>`);
   }
