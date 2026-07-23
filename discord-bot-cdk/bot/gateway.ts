@@ -1,3 +1,5 @@
+import { ChannelManager, DiscordInteraction } from './channel-manager';
+
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 
 export interface GatewayPayload {
@@ -39,7 +41,7 @@ export function createIdentifyPayload(token: string): GatewayPayload {
 }
 
 /** Connects to Discord Gateway and keeps the bot session alive until stopped. */
-export function connectToDiscord(token: string): WebSocket {
+export function connectToDiscord(token: string, channelManager?: ChannelManager): WebSocket {
   const socket = new WebSocket(GATEWAY_URL);
   let sequence: number | null = null;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -59,6 +61,17 @@ export function connectToDiscord(token: string): WebSocket {
     } else if (payload.op === 0 && payload.t === 'READY') {
       const ready = payload.d as { user: { username: string } };
       console.log(`Discord bot is online as ${ready.user.username}`);
+      const guildId = process.env.DISCORD_GUILD_ID?.trim();
+      const setupChannelId = process.env.DISCORD_SETUP_CHANNEL_ID?.trim();
+      if (channelManager && guildId && setupChannelId) {
+        void channelManager.setupGuild(guildId, setupChannelId).catch((error: unknown) => {
+          console.error(error instanceof Error ? error.message : error);
+        });
+      }
+    } else if (payload.op === 0 && payload.t === 'INTERACTION_CREATE' && channelManager) {
+      void channelManager.handleInteraction(payload.d as DiscordInteraction).catch((error: unknown) => {
+        console.error(error instanceof Error ? error.message : error);
+      });
     }
   });
 
