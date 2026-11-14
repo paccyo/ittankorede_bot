@@ -190,9 +190,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          PR=$(gh pr view ${{ github.event.issue.number }} --json headRefName,baseRefName)
-          echo "branch=$(echo "$PR" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
-          echo "base=$(echo "$PR" | jq -r '.baseRefName')" >> "$GITHUB_OUTPUT"
+          PR=$(gh pr view ${{ github.event.issue.number }} -R "${{ github.repository }}" --json headRefName,baseRefName)
+          echo "branch=$(echo "$PR" \vert{} jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+          echo "base=$(echo "$PR" \vert{} jq -r '.baseRefName')" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v5
         if: steps.command.outputs.supported == 'true'
