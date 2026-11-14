@@ -56,10 +56,10 @@ jobs:
         id: summary
         shell: bash
         run: |
-          DELIMITER="CODEX_SUMMARY_$(date +%s)_$RANDOM"
+          DELIMITER="CODEX_SUMMARY_$(date +\%s)_$RANDOM"
 
           {
-            echo "body<<__CODEX__"
+            echo "body<<$DELIMITER"
 
             if [ -f implementation-output.md ]; then
               cat implementation-output.md
@@ -68,8 +68,11 @@ jobs:
             fi
 
             printf '\n'
-            echo '__CODEX__'
+            echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
+
+          # PRに不要な一時ファイルが混入しないよう削除
+          rm -f implementation-output.md
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -190,7 +193,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          PR=$(gh pr view ${{ github.event.issue.number }} --json headRefName,baseRefName)
+          PR=$(gh pr view ${{ github.event.issue.number }} -R "${{ github.repository }}" --json headRefName,baseRefName)
           echo "branch=$(echo "$PR" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
           echo "base=$(echo "$PR" | jq -r '.baseRefName')" >> "$GITHUB_OUTPUT"
 
@@ -271,15 +274,7 @@ jobs:
             # テスト観点
             # レビュー時に確認してほしい点
 
-      - name: Commit Fix
-        if: steps.command.outputs.command == 'fix'
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          branch: ${{ steps.pr.outputs.branch }}
-          commit_message: "fix: address review comments"
-          file_pattern: .
-
-      - name: Read Codex Output
+      - name: Read Codex Output & Cleanup
         if: steps.command.outputs.supported == 'true'
         id: output
         shell: bash
@@ -287,7 +282,7 @@ jobs:
           DELIMITER="CODEX_OUTPUT_$(date +%s)_$RANDOM"
 
           {
-            echo "body<<__CODEX__"
+            echo "body<<$DELIMITER"
 
             if [ -f codex-output.md ]; then
               cat codex-output.md
@@ -296,8 +291,19 @@ jobs:
             fi
 
             printf '\n'
-            echo '__CODEX__'
+            echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
+
+          # git-auto-commit-action でコミットされる前に一時ファイルを削除
+          rm -f codex-output.md pr-diff.patch
+
+      - name: Commit Fix
+        if: steps.command.outputs.command == 'fix'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: ${{ steps.pr.outputs.branch }}
+          commit_message: "fix: address review comments"
+          file_pattern: .
 
       - name: Comment Codex Result
         if: steps.command.outputs.supported == 'true'
