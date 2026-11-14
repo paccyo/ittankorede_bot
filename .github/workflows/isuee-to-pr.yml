@@ -24,6 +24,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           sandbox: workspace-write
+          drop-sudo: false
           output-file: implementation-output.md
           prompt: |
             次のIssueを実装してください。
@@ -71,7 +72,6 @@ jobs:
             echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
 
-          # PRに不要な一時ファイルが混入しないよう削除
           rm -f implementation-output.md
 
       - name: Create Pull Request
@@ -217,6 +217,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           sandbox: workspace-write
+          drop-sudo: false
           output-file: codex-output.md
           prompt: |
             このPull Requestへのレビューコメントを反映してください。
@@ -253,6 +254,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           sandbox: read-only
+          drop-sudo: false
           output-file: codex-output.md
           prompt: |
             このPull Requestの変更内容をレビュー者向けに説明してください。
@@ -294,7 +296,6 @@ jobs:
             echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
 
-          # git-auto-commit-action でコミットされる前に一時ファイルを削除
           rm -f codex-output.md pr-diff.patch
 
       - name: Commit Fix
