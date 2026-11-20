@@ -1,6 +1,7 @@
 import {
   ARCHIVE_MOCK_CHANNEL_NAMES,
   ChannelManager,
+  CANCEL_CHANNEL_PREFIX,
   CREATE_CHANNEL_PREFIX,
   DiscordChannel,
   DiscordInteraction,
@@ -18,6 +19,7 @@ function modalInteraction(name: string): DiscordInteraction {
   return {
     id: 'interaction',
     token: 'interaction-token',
+    application_id: 'app-id',
     type: 5,
     guild_id: 'guild',
     data: {
@@ -82,13 +84,17 @@ describe('ChannelManager', () => {
       ...categories,
       { id: 'active', name: 'minecraft', type: 0, parent_id: 'game-category' },
     ]);
-    await new ChannelManager(request).handleInteraction(modalInteraction('Minecraft'));
+    const matcher = { findSimilarChannel: jest.fn() };
+    await new ChannelManager(request, matcher).handleInteraction(modalInteraction('Minecraft'));
+    expect(matcher.findSimilarChannel).not.toHaveBeenCalled();
 
-    expect(bodyOf(calls[1])).toMatchObject({
-      type: 4,
-      data: { content: expect.stringContaining('<#active>'), flags: 64 },
+    expect(bodyOf(calls[0])).toEqual({ type: 5, data: { flags: 64 } });
+    expect(calls[1].path).toBe('/guilds/guild/channels');
+    expect(calls[2]).toMatchObject({
+      path: '/webhooks/app-id/interaction-token/messages/@original',
+      init: { method: 'PATCH' },
     });
-    expect(calls).toHaveLength(2);
+    expect(bodyOf(calls[2])).toMatchObject({ content: expect.stringContaining('<#active>') });
   });
 
   test('asks before activating an archived channel', async () => {
@@ -96,18 +102,17 @@ describe('ChannelManager', () => {
       ...categories,
       { id: 'archived', name: 'splatoon', type: 0, parent_id: 'archive-category' },
     ]);
-    await new ChannelManager(request).handleInteraction(modalInteraction('Splatoon'));
+    const matcher = { findSimilarChannel: jest.fn() };
+    await new ChannelManager(request, matcher).handleInteraction(modalInteraction('Splatoon'));
+    expect(matcher.findSimilarChannel).not.toHaveBeenCalled();
 
-    expect(bodyOf(calls[1])).toMatchObject({
-      data: {
-        content: expect.stringContaining('<#archived>'),
-        components: [{ components: [
-          { label: '新規作成' },
-          { label: '既存チャンネルを使用' },
-          { label: 'キャンセル' },
-        ] }],
-        flags: 64,
-      },
+    expect(bodyOf(calls[2])).toMatchObject({
+      content: expect.stringContaining('<#archived>'),
+      components: [{ components: [
+        { label: '新規作成' },
+        { label: '既存チャンネルを使用' },
+        { label: 'キャンセル' },
+      ] }],
     });
   });
 
@@ -127,10 +132,7 @@ describe('ChannelManager', () => {
     expect(matcher.findSimilarChannel).toHaveBeenCalledWith('エペ', [
       expect.objectContaining({ id: 'archived' }),
     ]);
-    expect(bodyOf(calls[1])).toMatchObject({
-      type: 4,
-      data: { content: expect.stringContaining('<#archived>'), flags: 64 },
-    });
+    expect(bodyOf(calls[2])).toMatchObject({ content: expect.stringContaining('<#archived>') });
   });
 
   test('creates the requested new channel after choosing new creation', async () => {
@@ -143,11 +145,11 @@ describe('ChannelManager', () => {
       findSimilarChannel: jest.fn().mockResolvedValue(channels[2]),
     });
     await manager.handleInteraction(modalInteraction('LOL'));
-    const response = bodyOf(calls[1]) as { data: { components: Array<{ components: Array<{ custom_id: string }> }> } };
-    const customId = response.data.components[0].components[0].custom_id;
+    const response = bodyOf(calls[2]) as { components: Array<{ components: Array<{ custom_id: string }> }> };
+    const customId = response.components[0].components[0].custom_id;
 
     await manager.handleInteraction({
-      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild',
+      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild', application_id: 'app-id',
       data: { custom_id: customId },
     });
 
@@ -164,24 +166,24 @@ describe('ChannelManager', () => {
     const { request, calls } = createRequest(channels);
     const manager = new ChannelManager(request);
     await manager.handleInteraction(modalInteraction('splatoon'));
-    const response = bodyOf(calls[1]) as { data: { components: Array<{ components: Array<{ custom_id: string }> }> } };
+    const response = bodyOf(calls[2]) as { components: Array<{ components: Array<{ custom_id: string }> }> };
 
     await manager.handleInteraction({
-      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild',
-      data: { custom_id: response.data.components[0].components[2].custom_id },
+      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild', application_id: 'app-id',
+      data: { custom_id: response.components[0].components[2].custom_id },
     });
 
     expect(calls.some((call) => call.path === '/channels/archived')).toBe(false);
-    expect(bodyOf(calls.at(-1)!)).toMatchObject({ data: { content: 'キャンセルしました。', flags: 64 } });
+    expect(bodyOf(calls.at(-1)!)).toMatchObject({ type: 7, data: { content: 'キャンセルしました。', components: [] } });
   });
 
   test('creates a new channel in the game category', async () => {
     const { request, calls } = createRequest(categories);
     await new ChannelManager(request).handleInteraction(modalInteraction('New Game'));
 
-    expect(calls[1].path).toBe('/guilds/guild/channels');
-    expect(bodyOf(calls[1])).toEqual({ name: 'new-game', type: 0, parent_id: 'game-category' });
-    expect(bodyOf(calls[2])).toMatchObject({ data: { content: expect.stringContaining('<#created-channel>') } });
+    expect(calls[2].path).toBe('/guilds/guild/channels');
+    expect(bodyOf(calls[2])).toEqual({ name: 'new-game', type: 0, parent_id: 'game-category' });
+    expect(bodyOf(calls[3])).toMatchObject({ content: expect.stringContaining('<#created-channel>') });
   });
 
   test('moves the archive channel selected by the existing-channel button', async () => {
@@ -191,17 +193,82 @@ describe('ChannelManager', () => {
     ]);
     const manager = new ChannelManager(request);
     await manager.handleInteraction(modalInteraction('splatoon'));
-    const response = bodyOf(calls[1]) as { data: { components: Array<{ components: Array<{ custom_id: string }> }> } };
+    const response = bodyOf(calls[2]) as { components: Array<{ components: Array<{ custom_id: string }> }> };
     await manager.handleInteraction({
-      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild',
-      data: { custom_id: response.data.components[0].components[1].custom_id },
+      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild', application_id: 'app-id',
+      data: { custom_id: response.components[0].components[1].custom_id },
     });
 
-    expect(calls[3].path).toBe('/channels/archived');
-    expect(bodyOf(calls[3])).toEqual({
+    expect(calls[5].path).toBe('/channels/archived');
+    expect(bodyOf(calls[5])).toEqual({
       parent_id: 'game-category',
       permission_overwrites: [{ id: 'guild', type: 0, allow: '1' }],
     });
+  });
+
+  test('creates a new channel when the matcher rejects', async () => {
+    const { request, calls } = createRequest(categories);
+    const matcher = { findSimilarChannel: jest.fn().mockRejectedValue(new Error('timeout')) };
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await new ChannelManager(request, matcher).handleInteraction(modalInteraction('New Game'));
+      expect(matcher.findSimilarChannel).toHaveBeenCalled();
+      expect(bodyOf(calls[2])).toEqual({ name: 'new-game', type: 0, parent_id: 'game-category' });
+      expect(bodyOf(calls[3])).toMatchObject({ content: expect.stringContaining('<#created-channel>') });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test('rejects choices from other guilds and expires unused choices after 15 minutes', async () => {
+    jest.useFakeTimers();
+    try {
+      const { request, calls } = createRequest([
+        ...categories,
+        { id: 'archived', name: 'splatoon', type: 0, parent_id: 'archive-category' },
+      ]);
+      const manager = new ChannelManager(request);
+      await manager.handleInteraction(modalInteraction('splatoon'));
+      const choice = {
+        id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild',
+        data: { custom_id: `${CANCEL_CHANNEL_PREFIX}interaction` },
+      };
+      await manager.handleInteraction({ ...choice, guild_id: 'other' });
+      expect(bodyOf(calls.at(-1)!)).toMatchObject({
+        type: 4, data: { content: expect.stringContaining('期限切れ'), flags: 64 },
+      });
+      expect(jest.getTimerCount()).toBe(1);
+      jest.advanceTimersByTime(15 * 60 * 1000);
+      await manager.handleInteraction(choice);
+      expect(bodyOf(calls.at(-1)!)).toMatchObject({
+        type: 4, data: { content: expect.stringContaining('期限切れ'), flags: 64 },
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('rechecks for a same-name game channel before creating from a choice', async () => {
+    const channels = [
+      ...categories,
+      { id: 'archived', name: 'splatoon', type: 0, parent_id: 'archive-category' },
+    ];
+    const { request, calls } = createRequest(channels);
+    const manager = new ChannelManager(request);
+    await manager.handleInteraction(modalInteraction('splatoon'));
+    channels.push({ id: 'active', name: 'splatoon', type: 0, parent_id: 'game-category' });
+
+    await manager.handleInteraction({
+      id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild', application_id: 'app-id',
+      data: { custom_id: `${CREATE_CHANNEL_PREFIX}interaction` },
+    });
+
+    expect(bodyOf(calls[3])).toEqual({ type: 6 });
+    expect(calls.some((call) => call.path === '/guilds/guild/channels' && call.init?.method === 'POST')).toBe(false);
+    expect(calls.at(-1)).toMatchObject({
+      path: '/webhooks/app-id/choice-token/messages/@original', init: { method: 'PATCH' },
+    });
+    expect(bodyOf(calls.at(-1)!)).toMatchObject({ content: expect.stringContaining('<#active>'), components: [] });
   });
 
   test('idempotently creates five read-only archive samples and one setup message', async () => {

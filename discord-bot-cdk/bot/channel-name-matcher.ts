@@ -25,10 +25,11 @@ export class GeminiChannelNameMatcher implements ChannelNameMatcher {
     if (channels.length === 0) return undefined;
 
     const response = await this.fetcher(
-      `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
+      `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(this.model)}:generateContent`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+        signal: AbortSignal.timeout(5_000),
         body: JSON.stringify({
           contents: [{
             role: 'user',
@@ -42,10 +43,13 @@ export class GeminiChannelNameMatcher implements ChannelNameMatcher {
           }],
           generationConfig: {
             temperature: 0,
+            ...(this.model.startsWith('gemini-2.5-flash') ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
             responseMimeType: 'application/json',
             responseJsonSchema: {
               type: 'object',
-              properties: { matchedChannelId: { type: ['string', 'null'] } },
+              properties: {
+                matchedChannelId: { type: ['string', 'null'], enum: [...channels.map(({ id }) => id), null] },
+              },
               required: ['matchedChannelId'],
               additionalProperties: false,
             },
