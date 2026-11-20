@@ -1,0 +1,598 @@
+name: Codex Issue Auto-Implement
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+# 同一の Issue / PR でワークフローが同時実行され、git push 等が競合するのを防ぐ
+concurrency:
+  group: codex-issue-to-pr-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # 1. Issue に codex ラベルが付与された際の自動実装 & Pull Request 作成ジョブ
+  # ============================================================================
+  implement:
+    if: github.event_name == 'issues' && github.event.label.name == 'codex'
+    # Ubuntu 26.04 の sudo-rs では sudo -E が非対応なため、
+    # openai/codex-action の drop-sudo を安全に動作させる目的で ubuntu-24.04 に固定する
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: OpenAI API キーの設定を確認
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "::error::リポジトリの Secrets に OPENAI_API_KEY が設定されていません。"
+            exit 1
+          fi
+
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Git の安全なディレクトリ設定
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Codex のサンドボックス内はネットワークが遮断されるため、
+      # 事前に依存パッケージを導入してテスト・ビルドを実行可能にしておく
+      - name: Node.js 環境をセットアップ
+        if: hashFiles('discord-bot-cdk/package-lock.json') != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.10.0"
+          cache: "npm"
+          cache-dependency-path: "discord-bot-cdk/package-lock.json"
+
+      - name: 依存パッケージをインストール
+        if: hashFiles('discord-bot-cdk/package-lock.json') != ''
+        working-directory: discord-bot-cdk
+        shell: bash
+        run: npm ci
+
+      - name: Codex による自動実装を実行
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          safety-strategy: drop-sudo
+          permission-profile: ":workspace"
+          prompt: |
+            次の GitHub Issue を実装してください。
+
+            ## Issue 番号
+            #${{ github.event.issue.number }}
+
+            ## タイトル
+            ${{ github.event.issue.title }}
+
+            ## 本文
+            ${{ github.event.issue.body || '（本文なし）' }}
+
+            ## 要件
+            - Issue の要件を満たす実装を行うこと
+            - 必要に応じて既存コードを修正すること（無関係なファイルは変更しないこと）
+            - テストを追加・更新すること
+            - 既存のコードスタイル・命名規則・AGENTS.md のルールに従うこと
+            - 実行可能なテスト・ビルドがあれば実行し、成功を確認すること（例: `discord-bot-cdk` 配下で `npm test -- --runInBand` / `npm run build`）
+            - 実装サマリー用の新規ファイル（implementation-output.md 等）はリポジトリ内に作成しないこと
+
+            ## 出力形式
+            作業完了後、最終応答として以下の Markdown 構成で簡潔に出力してください。
+
+            # 実装概要
+            # 主な変更点
+            # 変更ファイル
+            # テスト
+            - 追加・変更したテスト
+            - テスト実行方法
+            - 実行結果
+            # レビュー時に確認してほしい点
+
+      - name: 変更ファイルの有無を確認
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # GITHUB_OUTPUT のデリミタ破損や文字数制限超過を防ぐため、
+      # PR 本文はワークスペース外の一時ファイル（RUNNER_TEMP）へ安全に書き出す
+      - name: PR メタデータと本文ファイルを生成
+        id: pr_meta
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: actions/github-script@v8
+        env:
+          CODEX_SUMMARY: ${{ steps.codex.outputs.final-message }}
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const issueNumber = context.payload.issue.number;
+            // タイトルに含まれる改行や連続空白を整形
+            const rawTitle = (context.payload.issue.title || `Issue #${issueNumber}`)
+              .replace(/[\r\n]+/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+            const prTitle = `[Auto] ${rawTitle}`.slice(0, 250);
+            const commitMessage = `feat: ${rawTitle}`.slice(0, 200);
+
+            // GitHub の PR 本文上限（65,536文字）を超えないよう安全に切り詰める
+            const rawSummary = (process.env.CODEX_SUMMARY || '').trim();
+            const maxSummaryLength = 55000;
+            const summary = rawSummary
+              ? (rawSummary.length > maxSummaryLength
+                  ? `${rawSummary.slice(0, maxSummaryLength)}\n\n...(出力が長いため一部を省略しました)`
+                  : rawSummary)
+              : 'Codex からサマリー出力が返されませんでした。変更差分を確認してください。';
+
+            const body = [
+              '## 🤖 Codexによる自動実装',
+              '',
+              `Issue #${issueNumber} を実装しました。`,
+              '',
+              `Closes #${issueNumber}`,
+              '',
+              '---',
+              '',
+              summary,
+              '',
+              '---',
+              '',
+              '## レビュー依頼',
+              '',
+              '以下を中心にレビューをお願いします。',
+              '',
+              '- Issueの要件を満たしているか',
+              '- 実装方針に問題がないか',
+              '- テスト内容は十分か',
+              '- 命名・可読性',
+              '- パフォーマンス',
+              '- セキュリティ',
+              '',
+              '---',
+              '',
+              '## Codexへの追加指示',
+              '',
+              '修正したい場合:',
+              '',
+              '```text',
+              '@codex fix',
+              '○○を修正してください。',
+              '```',
+              '',
+              '変更内容を説明してほしい場合:',
+              '',
+              '```text',
+              '@codex explain',
+              'このPRの変更内容と設計意図を説明してください。',
+              '```',
+              '',
+              '**必ず人間がレビューしてからマージしてください。**',
+              '',
+            ].join('\n');
+
+            const bodyPath = path.join(process.env.RUNNER_TEMP_DIR, 'pr-body.md');
+            fs.writeFileSync(bodyPath, body, 'utf8');
+
+            core.setOutput('pr_title', prTitle);
+            core.setOutput('commit_message', commitMessage);
+            core.setOutput('body_path', bodyPath);
+
+      # PR に付与するラベルが未作成だと create-pull-request が失敗するため事前に確保する
+      - name: codex-generated ラベルの存在を確認・作成
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const labelName = 'codex-generated';
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: labelName,
+                color: '1d76db',
+                description: 'Codex により自動生成された Pull Request',
+              });
+              core.info(`ラベル '${labelName}' を作成しました。`);
+            } catch (error) {
+              // 422 は既存ラベルの重複エラーなので正常扱いとする
+              if (error.status === 422) {
+                core.info(`ラベル '${labelName}' は既に存在します。`);
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Pull Request を作成・更新
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: codex/issue-${{ github.event.issue.number }}
+          commit-message: ${{ steps.pr_meta.outputs.commit_message }}
+          title: ${{ steps.pr_meta.outputs.pr_title }}
+          labels: codex-generated
+          body-path: ${{ steps.pr_meta.outputs.body_path }}
+          delete-branch: false
+
+      - name: 変更ファイルがない場合に Issue へ通知
+        if: steps.changes.outputs.has_changes != 'true'
+        uses: actions/github-script@v8
+        env:
+          CODEX_SUMMARY: ${{ steps.codex.outputs.final-message }}
+        with:
+          script: |
+            const summary = (process.env.CODEX_SUMMARY || 'Codex から出力がありませんでした。')
+              .trim()
+              .slice(0, 60000);
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## 🤖 Codexによる自動実装結果（変更なし）',
+                '',
+                'ファイル変更が発生しなかったため、Pull Request は作成されませんでした。',
+                '',
+                '---',
+                '',
+                summary,
+              ].join('\n'),
+            });
+
+      - name: 失敗時に Issue へエラーを通知
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Codexによる自動実装でエラーが発生しました',
+                '',
+                `ワークフローの実行ログを確認してください: ${runUrl}`,
+                '',
+                '主な確認ポイント:',
+                '- リポジトリの Secrets に `OPENAI_API_KEY` が設定されているか',
+                '- Settings → Actions → General で「Allow GitHub Actions to create and approve pull requests」が有効になっているか',
+              ].join('\n'),
+            });
+
+  # ============================================================================
+  # 2. PR 上の @codex コマンドコメント（fix / explain）に応答するジョブ
+  # ============================================================================
+  codex-command:
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '@codex') &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+    # Ubuntu 26.04 の sudo-rs による sudo -E エラーを回避するため ubuntu-24.04 に固定
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      # チェックアウト前でも GitHub API から確実に PR 情報を取得し、
+      # CRLF 改行やシェルインジェクションの影響を受けずにコマンドを解析する
+      - name: コマンド解析と PR 情報の取得
+        id: meta
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const rawBody = context.payload.comment.body || '';
+            const normalizedBody = rawBody.replace(/\r\n/g, '\n');
+
+            // "@codexbot" など別アカウント宛のメンションは誤爆防止のため無視する
+            if (!/^@codex(?=$|\s)/.test(normalizedBody)) {
+              core.info('対象外のメンションのため処理をスキップします。');
+              core.setOutput('can_run', 'false');
+              return;
+            }
+
+            const firstLine = normalizedBody.split('\n')[0].trim();
+            const match = firstLine.match(/^@codex(?:\s+([a-zA-Z0-9_-]+))?/);
+            const command = match && match[1] ? match[1].toLowerCase() : '';
+
+            core.setOutput('command', command);
+
+            if (command !== 'fix' && command !== 'explain') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: [
+                  '対応していないCodexコマンドです。',
+                  '',
+                  '利用可能なコマンド:',
+                  '',
+                  '```text',
+                  '@codex fix',
+                  '@codex explain',
+                  '```',
+                ].join('\n'),
+              });
+              core.setOutput('can_run', 'false');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const headRef = pr.head.ref;
+            const baseRef = pr.base.ref;
+            const isFork = !pr.head.repo || pr.head.repo.full_name !== pr.base.repo.full_name;
+
+            // @codex fix は同一リポジトリのオープン中 PR のみブランチへプッシュ可能
+            if (command === 'fix' && pr.state !== 'open') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '⚠️ この Pull Request はすでにクローズまたはマージされているため、`@codex fix` は実行できません。',
+              });
+              core.setOutput('can_run', 'false');
+              return;
+            }
+
+            if (command === 'fix' && isFork) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '⚠️ フォーク元リポジトリからの Pull Request に対しては、権限の制約により `@codex fix` でブランチを更新できません。',
+              });
+              core.setOutput('can_run', 'false');
+              return;
+            }
+
+            // explain はフォーク PR やクローズ済み PR でも安全にチェックアウトできるよう PR ref を使う
+            const checkoutRef = command === 'fix'
+              ? headRef
+              : `refs/pull/${context.issue.number}/head`;
+
+            core.setOutput('can_run', 'true');
+            core.setOutput('branch', headRef);
+            core.setOutput('base', baseRef);
+            core.setOutput('checkout_ref', checkoutRef);
+
+      - name: OpenAI API キーの設定を確認
+        if: steps.meta.outputs.can_run == 'true'
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "::error::リポジトリの Secrets に OPENAI_API_KEY が設定されていません。"
+            exit 1
+          fi
+
+      - name: PR ブランチをチェックアウト
+        if: steps.meta.outputs.can_run == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.meta.outputs.checkout_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # refspec を明示して origin/<base> を確実に作成し、
+      # ワークスペースに一時パッチファイルを作らずに git diff を実行できるようにする
+      - name: ベースブランチの参照を取得
+        if: steps.meta.outputs.can_run == 'true'
+        shell: bash
+        env:
+          BASE_BRANCH: ${{ steps.meta.outputs.base }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --no-tags origin "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
+
+      - name: Node.js 環境をセットアップ（fix 実行時）
+        if: steps.meta.outputs.can_run == 'true' && steps.meta.outputs.command == 'fix' && hashFiles('discord-bot-cdk/package-lock.json') != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.10.0"
+          cache: "npm"
+          cache-dependency-path: "discord-bot-cdk/package-lock.json"
+
+      - name: 依存パッケージをインストール（fix 実行時）
+        if: steps.meta.outputs.can_run == 'true' && steps.meta.outputs.command == 'fix' && hashFiles('discord-bot-cdk/package-lock.json') != ''
+        working-directory: discord-bot-cdk
+        shell: bash
+        run: npm ci
+
+      - name: Codex による修正を実行（@codex fix）
+        id: codex_fix
+        if: steps.meta.outputs.can_run == 'true' && steps.meta.outputs.command == 'fix'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          safety-strategy: drop-sudo
+          permission-profile: ":workspace"
+          prompt: |
+            この Pull Request へのレビューコメントを反映してください。
+
+            ## PR 番号
+            #${{ github.event.issue.number }}
+
+            ## ベースブランチ
+            origin/${{ steps.meta.outputs.base }}
+
+            ## レビューコメント
+            ${{ github.event.comment.body }}
+
+            ## PR 差分の確認方法
+            現在の PR 差分は `git diff origin/${{ steps.meta.outputs.base }}...HEAD` を実行して確認してください。
+
+            ## 要件
+            - レビューコメントの内容を反映すること
+            - 不要な変更はしないこと
+            - 既存のコードスタイル・命名規則・AGENTS.md のルールに従うこと
+            - 必要に応じてテストを追加・修正すること
+            - 実行可能なテスト・ビルドがあれば実行し、成功を確認すること（例: `discord-bot-cdk` 配下で `npm test -- --runInBand` / `npm run build`）
+            - サマリー出力用の一時ファイル（codex-output.md 等）はリポジトリ内に作成しないこと
+
+            ## 出力形式
+            作業完了後、最終応答として以下の Markdown 構成で簡潔に出力してください。
+
+            # 修正概要
+            # 変更ファイル
+            # テスト
+            - 追加・変更したテスト
+            - テスト実行方法
+            - 実行結果
+            # レビュー時に確認してほしい点
+
+      - name: Codex による変更説明を実行（@codex explain）
+        id: codex_explain
+        if: steps.meta.outputs.can_run == 'true' && steps.meta.outputs.command == 'explain'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          safety-strategy: drop-sudo
+          permission-profile: ":read-only"
+          prompt: |
+            この Pull Request の変更内容をレビュー者向けに説明してください。
+
+            ## PR 番号
+            #${{ github.event.issue.number }}
+
+            ## ベースブランチ
+            origin/${{ steps.meta.outputs.base }}
+
+            ## ユーザーコメント
+            ${{ github.event.comment.body }}
+
+            ## PR 差分の確認方法
+            現在の PR 差分は `git diff origin/${{ steps.meta.outputs.base }}...HEAD` および `git diff --stat origin/${{ steps.meta.outputs.base }}...HEAD` を実行して確認してください。
+
+            ## 出力形式
+            最終応答として以下を Markdown で簡潔にまとめてください。
+
+            # 変更概要
+            # 設計意図
+            # 主な変更ファイル
+            # テスト観点
+            # レビュー時に確認してほしい点
+
+      - name: 修正内容をコミット・プッシュ（@codex fix）
+        id: commit_fix
+        if: steps.meta.outputs.can_run == 'true' && steps.meta.outputs.command == 'fix'
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ steps.meta.outputs.branch }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: address review comments"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Codex の実行結果を PR にコメント
+        if: steps.meta.outputs.can_run == 'true'
+        uses: actions/github-script@v8
+        env:
+          COMMAND: ${{ steps.meta.outputs.command }}
+          COMMITTED: ${{ steps.commit_fix.outputs.committed }}
+          FIX_OUTPUT: ${{ steps.codex_fix.outputs.final-message }}
+          EXPLAIN_OUTPUT: ${{ steps.codex_explain.outputs.final-message }}
+        with:
+          script: |
+            const command = process.env.COMMAND;
+            const committed = process.env.COMMITTED === 'true';
+            const rawOutput = (command === 'fix'
+              ? process.env.FIX_OUTPUT
+              : process.env.EXPLAIN_OUTPUT) || '';
+
+            const trimmed = rawOutput.trim();
+            const maxLength = 60000;
+            const bodyContent = trimmed
+              ? (trimmed.length > maxLength
+                  ? `${trimmed.slice(0, maxLength)}\n\n...(出力が長いため一部を省略しました)`
+                  : trimmed)
+              : 'Codex から出力が返されませんでした。';
+
+            let title;
+            let footer = '';
+            if (command === 'fix') {
+              if (committed) {
+                title = '## 🤖 Codexが修正を反映しました';
+                footer = '\n\nレビューをお願いします。';
+              } else {
+                title = '## 🤖 Codexによる確認結果（ファイル変更なし）';
+              }
+            } else {
+              title = '## 🤖 Codexによる変更説明';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `${title}\n\n${bodyContent}${footer}`,
+            });
+
+      - name: 失敗時に PR へエラーを通知
+        if: failure() && steps.meta.outputs.can_run == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Codexコマンドの実行中にエラーが発生しました',
+                '',
+                `ワークフローの実行ログを確認してください: ${runUrl}`,
+              ].join('\n'),
+            });
