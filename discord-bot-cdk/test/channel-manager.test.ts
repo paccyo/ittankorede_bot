@@ -235,13 +235,13 @@ describe('ChannelManager', () => {
       };
       await manager.handleInteraction({ ...choice, guild_id: 'other' });
       expect(bodyOf(calls.at(-1)!)).toMatchObject({
-        type: 4, data: { content: expect.stringContaining('期限切れ'), flags: 64 },
+        type: 7, data: { content: expect.stringContaining('期限切れ'), components: [] },
       });
       expect(jest.getTimerCount()).toBe(1);
       jest.advanceTimersByTime(15 * 60 * 1000);
       await manager.handleInteraction(choice);
       expect(bodyOf(calls.at(-1)!)).toMatchObject({
-        type: 4, data: { content: expect.stringContaining('期限切れ'), flags: 64 },
+        type: 7, data: { content: expect.stringContaining('期限切れ'), components: [] },
       });
     } finally {
       jest.useRealTimers();

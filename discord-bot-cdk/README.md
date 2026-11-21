@@ -17,4 +17,4 @@ The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
 Copy the repository's `.env.example` to `.env`. Set `GEMINI_API_KEY` to enable
 game-name alias matching against archived channels. `GEMINI_MODEL` is optional
-and defaults to `gemini-2.5-flash`.
+and defaults to `gemini-3.5-flash-lite`.

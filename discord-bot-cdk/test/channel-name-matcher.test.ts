@@ -27,9 +27,24 @@ describe('GeminiChannelNameMatcher', () => {
       thinkingConfig: { thinkingBudget: 0 },
       responseJsonSchema: {
         required: ['matchedChannelId'],
-        properties: { matchedChannelId: { enum: ['lol', 'apex', null] } },
+        properties: { matchedChannelId: { enum: ['lol', 'apex', 'none'] } },
       },
     });
+  });
+
+  test('uses a current default model with minimal thinking', async () => {
+    const fetcher = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: '{"matchedChannelId":"none"}' }] } }],
+      }),
+    });
+
+    await expect(new GeminiChannelNameMatcher('api-key', undefined, fetcher).findSimilarChannel('game', channels))
+      .resolves.toBeUndefined();
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/models/gemini-3.5-flash-lite:generateContent');
+    expect(JSON.parse(String(init.body)).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
   });
 
   test('does not accept a channel id outside the supplied candidates', async () => {

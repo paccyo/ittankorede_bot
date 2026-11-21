@@ -352,7 +352,10 @@ export class ChannelManager {
   ): Promise<void> {
     const choice = this.pendingChoices.get(choiceId);
     if (!choice || interaction.guild_id !== choice.guildId) {
-      await this.ephemeral(interaction, 'この選択は期限切れです。もう一度チャンネル名を入力してください。');
+      await this.respond(interaction, 7, {
+        content: 'この選択は期限切れです。もう一度チャンネル名を入力してください。',
+        components: [],
+      });
       return;
     }
     this.pendingChoices.delete(choiceId);
