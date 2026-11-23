@@ -1,3 +1,4 @@
+import { CHANNEL_LOG_COMMAND, ChannelLogs } from './channel-logs';
 import type { ChannelNameMatcher } from './channel-name-matcher';
 
 const API_BASE_URL = 'https://discord.com/api/v10';
@@ -38,6 +39,7 @@ interface PermissionOverwrite {
 }
 
 interface InteractionOption {
+  name?: string;
   custom_id?: string;
   value?: string;
   components?: InteractionOption[];
@@ -53,6 +55,8 @@ export interface DiscordInteraction {
   data?: {
     custom_id?: string;
     name?: string;
+    options?: InteractionOption[];
+    resolved?: { channels?: Record<string, DiscordChannel> };
     components?: InteractionOption[];
   };
 }
@@ -141,6 +145,7 @@ export class ChannelManager {
   public constructor(
     private readonly request: DiscordRequest,
     private readonly nameMatcher?: ChannelNameMatcher,
+    private readonly logs?: ChannelLogs,
   ) {}
 
   public async setupGuild(guildId: string, setupChannelId: string): Promise<void> {
@@ -206,6 +211,24 @@ export class ChannelManager {
     // スラッシュコマンド (type 2: APPLICATION_COMMAND)
     if (interaction.type === 2 && interaction.data?.name === SETUP_COMMAND_NAME) {
       await this.handleSetupCommand(interaction);
+      return true;
+    }
+
+    if (interaction.type === 2 && interaction.data?.name === CHANNEL_LOG_COMMAND.name && this.logs) {
+      const guildId = interaction.guild_id;
+      const channelId = interaction.data.options?.find((option) => option.name === 'channel')?.value;
+      if (!guildId || !channelId || interaction.data.resolved?.channels?.[channelId]?.type !== 0) {
+        await this.ephemeral(interaction, 'サーバー内のテキストチャンネルを指定してください。');
+        return true;
+      }
+      try {
+        this.logs.setDestination(guildId, channelId);
+      } catch (error) {
+        console.error('ログ送信先の保存に失敗しました:', error instanceof Error ? error.message : error);
+        await this.ephemeral(interaction, 'ログ送信先を保存できませんでした。');
+        return true;
+      }
+      await this.ephemeral(interaction, `チャンネル管理ログの送信先を <#${channelId}> に設定しました。`);
       return true;
     }
 

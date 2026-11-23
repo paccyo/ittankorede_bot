@@ -226,3 +226,6 @@ __marimo__/
 
 # GitHub App credentials
 gha-creds-*.json
+
+# Discord channel log settings
+/.channel-log-settings/

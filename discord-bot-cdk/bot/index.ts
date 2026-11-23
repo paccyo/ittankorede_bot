@@ -1,3 +1,4 @@
+import { ChannelLogs } from './channel-logs';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { connectToDiscord, getDiscordToken } from './gateway';
@@ -13,7 +14,16 @@ try {
   const matcher = geminiApiKey
     ? new GeminiChannelNameMatcher(geminiApiKey, process.env.GEMINI_MODEL?.trim() || undefined)
     : undefined;
-  const socket = connectToDiscord(token, new ChannelManager(createDiscordRequest(token), matcher));
+  const request = createDiscordRequest(token);
+  const guildId = process.env.DISCORD_GUILD_ID?.trim();
+  const channelId = process.env.DISCORD_CHANNEL_LOG_CHANNEL_ID?.trim()
+    || process.env.DISCORD_SETUP_CHANNEL_ID?.trim();
+  const logs = new ChannelLogs(
+    request,
+    guildId && channelId ? { guildId, channelId } : undefined,
+    resolve(__dirname, '../../.channel-log-settings'),
+  );
+  const socket = connectToDiscord(token, new ChannelManager(request, matcher, logs), logs);
   process.once('SIGINT', () => socket.close(1000, 'Process stopped'));
   process.once('SIGTERM', () => socket.close(1000, 'Process stopped'));
 } catch (error) {

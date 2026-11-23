@@ -9,6 +9,7 @@ import {
   createDiscordRequest,
   SETUP_COMMAND_NAME,
 } from './channel-manager';
+import { CHANNEL_LOG_COMMAND } from './channel-logs';
 import { getDiscordToken } from './gateway';
 
 const envFile = resolve(__dirname, '../../.env');
@@ -28,6 +29,7 @@ async function getApplicationId(token: string): Promise<string> {
 
 /** 登録するコマンド一覧 */
 const commands = [
+  CHANNEL_LOG_COMMAND,
   {
     name: SETUP_COMMAND_NAME,
     description: '常設ボタンをこのチャンネルに送信します',
