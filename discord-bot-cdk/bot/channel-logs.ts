@@ -81,9 +81,6 @@ export class ChannelLogs {
       return;
     }
 
-    await this.request(`/channels/${destination}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-    });
+    await this.enqueue(destination, content);
   }
 }
