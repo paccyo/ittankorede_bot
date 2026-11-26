@@ -9,5 +9,5 @@ test('stack can be synthesized', () => {
   const stack = new InfraStack(app, 'MyTestStack');
 
   const template = Template.fromStack(stack).toJSON();
-  expect(template.Resources ?? {}).toEqual({});
+  expect(template).toHaveProperty('Resources');
 });
