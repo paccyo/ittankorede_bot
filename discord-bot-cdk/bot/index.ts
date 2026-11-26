@@ -16,8 +16,7 @@ try {
     : undefined;
   const request = createDiscordRequest(token);
   const guildId = process.env.DISCORD_GUILD_ID?.trim();
-  const channelId = process.env.DISCORD_CHANNEL_LOG_CHANNEL_ID?.trim()
-    || process.env.DISCORD_SETUP_CHANNEL_ID?.trim();
+  const channelId = process.env.DISCORD_CHANNEL_LOG_CHANNEL_ID?.trim();
   const logs = new ChannelLogs(
     request,
     guildId && channelId ? { guildId, channelId } : undefined,
