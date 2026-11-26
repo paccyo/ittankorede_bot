@@ -56,6 +56,10 @@ export class ChannelLogs {
     this.parents.set(guildId, parents);
     if (event === 'CHANNEL_DELETE') {
       parents.delete(channel.id);
+      if (this.destinations.get(guildId) === channel.id) {
+        this.destinations.delete(guildId);
+        if (this.settingsDirectory) rmSync(join(this.settingsDirectory, guildId), { force: true });
+      }
       return;
     }
 
