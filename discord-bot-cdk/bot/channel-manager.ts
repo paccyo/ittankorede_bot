@@ -222,6 +222,16 @@ export class ChannelManager {
         return true;
       }
       try {
+        await this.request(`/channels/${channelId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ content: 'このチャンネルにチャンネル管理ログを送信します。', allowed_mentions: { parse: [] } }),
+        });
+      } catch (error) {
+        console.error('ログ送信先へのテスト投稿に失敗しました:', error instanceof Error ? error.message : error);
+        await this.ephemeral(interaction, `<#${channelId}> に投稿できませんでした。Bot に「チャンネルを見る」と「メッセージを送信」の権限があるか確認してください。`);
+        return true;
+      }
+      try {
         this.logs.setDestination(guildId, channelId);
       } catch (error) {
         console.error('ログ送信先の保存に失敗しました:', error instanceof Error ? error.message : error);
