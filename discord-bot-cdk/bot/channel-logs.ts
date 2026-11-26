@@ -74,6 +74,7 @@ export class ChannelLogs {
     const category = (id: string | null): string => id ? `<#${id}>` : 'カテゴリなし';
     let content: string;
     if (event === 'CHANNEL_CREATE') {
+      if (channel.type === 4) return;
       content = `チャンネルを作成しました: <#${channel.id}>（${category(parent)}）`;
     } else if (previousParent !== undefined && previousParent !== parent) {
       content = `チャンネルを移動しました: <#${channel.id}>（${category(previousParent)} → ${category(parent)}）`;
