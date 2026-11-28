@@ -1,7 +1,9 @@
 import { denySending, DiscordChannel, DiscordRequest } from './channel-manager';
 
 export const INACTIVE_DAYS = 10;
-const INACTIVE_MS = INACTIVE_DAYS * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const INACTIVE_MS = INACTIVE_DAYS * DAY_MS;
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DISCORD_EPOCH = 1420070400000n;
 
 interface DiscordMessage {
@@ -13,6 +15,11 @@ export interface LatestMessage {
   channel: DiscordChannel;
   /** チャンネルに発言が無いときは null */
   message: DiscordMessage | null;
+}
+
+/** 次の 0 時 (日本時間) までのミリ秒。ちょうど 0 時なら翌日の 0 時までを返す */
+export function msUntilNextMidnightJst(now: number): number {
+  return DAY_MS - ((now + JST_OFFSET_MS) % DAY_MS);
 }
 
 /** Snowflake ID から作成日時 (ミリ秒) を求める */

@@ -1,4 +1,4 @@
-import { ChannelArchiver, snowflakeToTime } from '../bot/channel-archiver';
+import { ChannelArchiver, msUntilNextMidnightJst, snowflakeToTime } from '../bot/channel-archiver';
 import { DiscordChannel, DiscordRequest } from '../bot/channel-manager';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -46,6 +46,13 @@ function daysAgo(days: number): { timestamp: string } {
 test('converts a snowflake ID to its creation time', () => {
   expect(snowflakeToTime(snowflakeAt(NOW))).toBe(NOW);
   expect(snowflakeToTime('175928847299117063')).toBe(Date.parse('2016-04-30T11:18:25.796Z'));
+});
+
+test('waits until the next midnight in Japan time', () => {
+  // 2026-11-29 00:00 JST は 2026-11-28 15:00 UTC
+  expect(msUntilNextMidnightJst(Date.parse('2026-11-28T14:59:00Z'))).toBe(60 * 1000);
+  expect(msUntilNextMidnightJst(Date.parse('2026-11-28T15:00:00Z'))).toBe(DAY);
+  expect(msUntilNextMidnightJst(Date.parse('2026-11-28T21:00:00Z'))).toBe(18 * 60 * 60 * 1000);
 });
 
 describe('fetchLatestMessages', () => {
