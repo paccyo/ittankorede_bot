@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DiscordChannel, DiscordRequest } from './channel-manager';
 
@@ -19,6 +19,7 @@ export const CHANNEL_LOG_COMMAND = {
 export class ChannelLogs {
   private readonly destinations = new Map<string, string>();
   private readonly parents = new Map<string, Map<string, string | null>>();
+  private queue: Promise<void> = Promise.resolve();
 
   public constructor(
     private readonly request: DiscordRequest,
@@ -83,5 +84,27 @@ export class ChannelLogs {
     }
 
     await this.enqueue(destination, content);
+  }
+
+  /** ログを 1 件ずつ順番に送信し、429 のときは待ってから再試行する */
+  private enqueue(destination: string, content: string): Promise<void> {
+    const send = async (): Promise<void> => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await this.request(`/channels/${destination}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+          });
+          return;
+        } catch (error) {
+          const rateLimited = error instanceof Error && error.message.includes('(429)');
+          if (!rateLimited || attempt >= 2) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        }
+      }
+    };
+    const result = this.queue.then(send);
+    this.queue = result.catch(() => undefined);
+    return result;
   }
 }
