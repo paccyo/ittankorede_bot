@@ -6,6 +6,7 @@ import {
   DiscordChannel,
   DiscordInteraction,
   DiscordRequest,
+  RESTORED_CHANNEL_NOTICE,
   buildChannelNamePattern,
   findChannelByName,
 } from '../bot/channel-manager';
@@ -204,6 +205,40 @@ describe('ChannelManager', () => {
       parent_id: 'game-category',
       permission_overwrites: [{ id: 'guild', type: 0, allow: '1' }],
     });
+    // 自動アーカイブですぐに戻されないよう、復元の案内を最新のメッセージとして残す
+    expect(calls[6].path).toBe('/channels/archived/messages');
+    expect(bodyOf(calls[6])).toMatchObject({ content: RESTORED_CHANNEL_NOTICE });
+    expect(bodyOf(calls[7])).toMatchObject({ content: 'チャンネルをアクティブに戻しました: <#archived>' });
+  });
+
+  test('reports a restored channel as restored even if the notice cannot be posted', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { request, calls } = createRequest([
+        ...categories,
+        { id: 'archived', name: 'splatoon', type: 0, parent_id: 'archive-category' },
+      ]);
+      const implementation = request.getMockImplementation()!;
+      request.mockImplementation(async (path, init) => {
+        if (path === '/channels/archived/messages') {
+          calls.push({ path, init });
+          throw new Error('Discord API POST /channels/archived/messages failed (403)');
+        }
+        return implementation(path, init);
+      });
+      const manager = new ChannelManager(request);
+      await manager.handleInteraction(modalInteraction('splatoon'));
+      const response = bodyOf(calls[2]) as { components: Array<{ components: Array<{ custom_id: string }> }> };
+      await manager.handleInteraction({
+        id: 'choice', token: 'choice-token', type: 3, guild_id: 'guild', application_id: 'app-id',
+        data: { custom_id: response.components[0].components[1].custom_id },
+      });
+
+      expect(bodyOf(calls[calls.length - 1])).toMatchObject({ content: 'チャンネルをアクティブに戻しました: <#archived>' });
+      expect(error).toHaveBeenCalledWith('復元の案内を投稿できませんでした:', expect.stringContaining('(403)'));
+    } finally {
+      error.mockRestore();
+    }
   });
 
   test('creates a new channel when the matcher rejects', async () => {
