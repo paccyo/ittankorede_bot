@@ -64,3 +64,9 @@ mise run build
 ```
 
 CDKコマンドは `discord-bot-cdk` ディレクトリで実行します。詳細は [discord-bot-cdk/README.md](discord-bot-cdk/README.md) を参照してください。
+
+### チャンネル管理ログ
+
+チャンネルの作成とカテゴリ間の移動を指定したテキストチャンネルに送信します。既定の送信先は `DISCORD_CHANNEL_LOG_CHANNEL_ID` で設定します。省略した場合は、`/set-channel-log` で設定するまでログを送信しません。
+
+`mise run deploy-commands` でコマンドを登録してから、Discord で `/set-channel-log channel:#ログチャンネル` を実行すると、そのサーバーの送信先を変更できます。既定では「サーバー管理」権限で実行でき、Bot には送信先の「チャンネルを見る」と「メッセージを送信」権限が必要です。変更した送信先はリポジトリ直下の `.channel-log-settings/` に保存されます。

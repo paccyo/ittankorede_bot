@@ -1,4 +1,5 @@
-import { ChannelManager, DiscordInteraction } from './channel-manager';
+import type { ChannelLogs } from './channel-logs';
+import { ChannelManager, DiscordChannel, DiscordInteraction } from './channel-manager';
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 
@@ -24,7 +25,7 @@ export function createIdentifyPayload(token: string): GatewayPayload {
     op: 2,
     d: {
       token,
-      intents: 0,
+      intents: 1,
       properties: {
         os: process.platform,
         browser: 'ittankorede_bot',
@@ -41,7 +42,7 @@ export function createIdentifyPayload(token: string): GatewayPayload {
 }
 
 /** Connects to Discord Gateway and keeps the bot session alive until stopped. */
-export function connectToDiscord(token: string, channelManager?: ChannelManager): WebSocket {
+export function connectToDiscord(token: string, channelManager?: ChannelManager, channelLogs?: ChannelLogs): WebSocket {
   const socket = new WebSocket(GATEWAY_URL);
   let sequence: number | null = null;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -68,6 +69,18 @@ export function connectToDiscord(token: string, channelManager?: ChannelManager)
           console.error(error instanceof Error ? error.message : error);
         });
       }
+    } else if (payload.op === 0 && payload.t === 'GUILD_CREATE' && channelLogs) {
+      const guild = payload.d as { id: string; channels: DiscordChannel[] };
+      try {
+        channelLogs.seedGuild(guild.id, guild.channels);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+      }
+    } else if (payload.op === 0 && channelLogs &&
+      (payload.t === 'CHANNEL_CREATE' || payload.t === 'CHANNEL_UPDATE' || payload.t === 'CHANNEL_DELETE')) {
+      void channelLogs.handleChannelEvent(payload.t, payload.d as DiscordChannel).catch((error: unknown) => {
+        console.error(error instanceof Error ? error.message : error);
+      });
     } else if (payload.op === 0 && payload.t === 'INTERACTION_CREATE' && channelManager) {
       void channelManager.handleInteraction(payload.d as DiscordInteraction).catch((error: unknown) => {
         console.error(error instanceof Error ? error.message : error);

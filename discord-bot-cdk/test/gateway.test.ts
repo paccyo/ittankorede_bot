@@ -9,14 +9,14 @@ describe('Discord Gateway configuration', () => {
     expect(() => getDiscordToken({})).toThrow('DISCORD_BOT_TOKEN is not set');
   });
 
-  test('identifies the bot with an online presence and no privileged intents', () => {
+  test('identifies the bot with an online presence and the GUILDS intent', () => {
     const payload = createIdentifyPayload('token-value');
 
     expect(payload).toMatchObject({
       op: 2,
       d: {
         token: 'token-value',
-        intents: 0,
+        intents: 1,
         presence: { status: 'online' },
       },
     });
