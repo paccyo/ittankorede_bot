@@ -17,6 +17,8 @@ export const ARCHIVE_MOCK_CHANNEL_NAMES = [
   'archive-sample-05',
 ] as const;
 
+export const RESTORED_CHANNEL_NOTICE = 'アーカイブから復元しました。10 日間発言が無いと、再びアーカイブされます。';
+
 const CHOICE_TTL_MS = 15 * 60 * 1000;
 const EPHEMERAL_FLAG = 1 << 6;
 const SEND_MESSAGES_PERMISSION = '2048';
@@ -124,7 +126,7 @@ function getInputValue(components: InteractionOption[] = []): string | undefined
   return undefined;
 }
 
-function denySending(overwrites: PermissionOverwrite[] = [], guildId: string): PermissionOverwrite[] {
+export function denySending(overwrites: PermissionOverwrite[] = [], guildId: string): PermissionOverwrite[] {
   const everyone = overwrites.find((overwrite) => overwrite.id === guildId && overwrite.type === 0);
   if (!everyone) {
     return [...overwrites, { id: guildId, type: 0, deny: SEND_MESSAGES_PERMISSION }];
@@ -413,6 +415,16 @@ export class ChannelManager {
         permission_overwrites: game.permission_overwrites ?? [],
       }),
     });
+    // 最後の発言から 10 日以上たったチャンネルは自動アーカイブの対象になるため、
+    // 復元の案内を最新のメッセージとして残し、すぐに再アーカイブされないようにする
+    try {
+      await this.request(`/channels/${channelId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ content: RESTORED_CHANNEL_NOTICE, allowed_mentions: { parse: [] } }),
+      });
+    } catch (error) {
+      console.error('復元の案内を投稿できませんでした:', error instanceof Error ? error.message : error);
+    }
     await this.editOriginal(interaction, `チャンネルをアクティブに戻しました: <#${channelId}>`);
   }
 
