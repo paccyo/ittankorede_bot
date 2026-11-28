@@ -124,7 +124,7 @@ function getInputValue(components: InteractionOption[] = []): string | undefined
   return undefined;
 }
 
-function denySending(overwrites: PermissionOverwrite[] = [], guildId: string): PermissionOverwrite[] {
+export function denySending(overwrites: PermissionOverwrite[] = [], guildId: string): PermissionOverwrite[] {
   const everyone = overwrites.find((overwrite) => overwrite.id === guildId && overwrite.type === 0);
   if (!everyone) {
     return [...overwrites, { id: guildId, type: 0, deny: SEND_MESSAGES_PERMISSION }];
