@@ -17,14 +17,39 @@ const categories: DiscordChannel[] = [
 const oldChannelId = snowflakeAt(NOW - 30 * DAY);
 const newChannelId = snowflakeAt(NOW - 3 * DAY);
 
+interface Thread {
+  id: string;
+  parent_id?: string;
+  last_message_id?: string | null;
+  thread_metadata?: { archive_timestamp: string };
+}
+
+interface Threads {
+  active?: Thread[] | Error;
+  /** チャンネル ID → ページごとのアーカイブ済み公開スレッド */
+  archived?: Record<string, Array<{ threads: Thread[]; has_more: boolean }> | Error>;
+}
+
 function createRequest(
   channels: DiscordChannel[],
   latest: Record<string, { timestamp: string } | null | Error>,
+  threads: Threads = {},
 ) {
   const calls: Array<{ path: string; init?: RequestInit }> = [];
   const request = jest.fn<ReturnType<DiscordRequest>, Parameters<DiscordRequest>>(async (path, init) => {
     calls.push({ path, init });
     if (path === '/guilds/guild/channels') return channels;
+    if (path === '/guilds/guild/threads/active') {
+      if (threads.active instanceof Error) throw threads.active;
+      return { threads: threads.active ?? [] };
+    }
+    const archivedMatch = /^\/channels\/([^/]+)\/threads\/archived\/public(?:\?before=(.+))?$/u.exec(path);
+    if (archivedMatch) {
+      const pages = threads.archived?.[archivedMatch[1]] ?? [];
+      if (pages instanceof Error) throw pages;
+      const pageIndex = calls.filter((call) => call.path.startsWith(`/channels/${archivedMatch[1]}/threads/archived/public`)).length - 1;
+      return pages[pageIndex] ?? { threads: [], has_more: false };
+    }
     const match = /^\/channels\/([^/]+)\/messages\?limit=1$/u.exec(path);
     if (match) {
       const message = latest[match[1]];
@@ -41,6 +66,16 @@ function createRequest(
 
 function daysAgo(days: number): { timestamp: string } {
   return { timestamp: new Date(NOW - days * DAY).toISOString() };
+}
+
+/** 最後の発言が days 日前で、その 1 日後にアーカイブされたスレッド */
+function threadActiveDaysAgo(id: string, days: number, parentId = 'stale'): Thread {
+  return {
+    id: `thread-${id}`,
+    parent_id: parentId,
+    last_message_id: snowflakeAt(NOW - days * DAY),
+    thread_metadata: { archive_timestamp: new Date(NOW - (days - 1) * DAY).toISOString() },
+  };
 }
 
 test('converts a snowflake ID to its creation time', () => {
@@ -198,5 +233,118 @@ describe('archiveInactiveChannels', () => {
     await new ChannelArchiver(request, ['setup']).archiveInactiveChannels('guild', NOW);
 
     expect(calls.map((call) => call.path)).toEqual(['/guilds/guild/channels']);
+  });
+});
+
+describe('archiveInactiveChannels with threads', () => {
+  const channels: DiscordChannel[] = [
+    ...categories,
+    { id: 'stale', name: 'stale', type: 0, parent_id: 'game-category' },
+  ];
+  const latest = { stale: daysAgo(20) };
+
+  test('keeps a channel whose active thread has a recent message', async () => {
+    const { request, patched } = createRequest(channels, latest, {
+      active: [threadActiveDaysAgo('1', 2), { ...threadActiveDaysAgo('2', 1), parent_id: 'other' }],
+    });
+
+    await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+    expect(patched()).toEqual([]);
+  });
+
+  test('keeps a channel whose archived thread had a recent message', async () => {
+    const { request, patched } = createRequest(channels, latest, {
+      archived: { stale: [{ threads: [threadActiveDaysAgo('1', 3)], has_more: false }] },
+    });
+
+    await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+    expect(patched()).toEqual([]);
+  });
+
+  test('uses the creation time of a thread that has no messages', async () => {
+    const created = snowflakeAt(NOW - 2 * DAY);
+    const { request, patched } = createRequest(channels, latest, {
+      active: [{ id: created, parent_id: 'stale', last_message_id: null }],
+    });
+
+    await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+    expect(patched()).toEqual([]);
+  });
+
+  test('archives a channel whose threads are all old, without reading pages beyond the cutoff', async () => {
+    const { request, calls, patched } = createRequest(channels, latest, {
+      active: [threadActiveDaysAgo('1', 15)],
+      archived: {
+        stale: [
+          { threads: [threadActiveDaysAgo('2', 12)], has_more: true },
+          { threads: [threadActiveDaysAgo('3', 1)], has_more: false },
+        ],
+      },
+    });
+
+    await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+    expect(patched().map((call) => call.path)).toEqual(['/channels/stale']);
+    expect(calls.filter((call) => call.path.includes('/threads/archived/')).map((call) => call.path))
+      .toEqual(['/channels/stale/threads/archived/public']);
+  });
+
+  test('reads the next page while threads were archived after the cutoff', async () => {
+    const recentlyArchivedOldThread: Thread = {
+      ...threadActiveDaysAgo('1', 12),
+      thread_metadata: { archive_timestamp: new Date(NOW - 5 * DAY).toISOString() },
+    };
+    const { request, calls, patched } = createRequest(channels, latest, {
+      archived: {
+        stale: [
+          { threads: [recentlyArchivedOldThread], has_more: true },
+          { threads: [threadActiveDaysAgo('2', 8)], has_more: false },
+        ],
+      },
+    });
+
+    await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+    expect(patched()).toEqual([]);
+    expect(calls.filter((call) => call.path.includes('/threads/archived/')).map((call) => call.path)).toEqual([
+      '/channels/stale/threads/archived/public',
+      `/channels/stale/threads/archived/public?before=${encodeURIComponent(new Date(NOW - 5 * DAY).toISOString())}`,
+    ]);
+  });
+
+  test('keeps a channel whose archived threads could not be read', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { request, patched } = createRequest(channels, latest, {
+        archived: { stale: new Error('Discord API GET /channels/stale/threads/archived/public failed (403)') },
+      });
+
+      await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+      expect(patched()).toEqual([]);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('#stale'), expect.stringContaining('(403)'));
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test('archives nothing when the active threads could not be read', async () => {
+    const { request, patched } = createRequest(channels, latest, {
+      active: new Error('Discord API GET /guilds/guild/threads/active failed (500)'),
+    });
+
+    await expect(new ChannelArchiver(request).archiveInactiveChannels('guild', NOW)).rejects.toThrow('(500)');
+    expect(patched()).toEqual([]);
+  });
+
+  test('does not look at threads of channels that are already active', async () => {
+    const { request, calls } = createRequest(channels, { stale: daysAgo(1) });
+
+    await new ChannelArchiver(request).archiveInactiveChannels('guild', NOW);
+
+    expect(calls.some((call) => call.path.includes('/threads/'))).toBe(false);
   });
 });
